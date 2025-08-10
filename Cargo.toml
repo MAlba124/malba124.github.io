@@ -1,0 +1,3 @@
+[workspace]
+members = ["beating-the-auto-vectorizer"]
+resolver = "3"

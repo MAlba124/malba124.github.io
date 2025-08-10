@@ -1,0 +1,1030 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>Beating the Auto-Vectorizer</title>
+  <style>
+    html {
+      color: #1a1a1a;
+      background-color: #fdfdfd;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 36em;
+      padding-left: 50px;
+      padding-right: 50px;
+      padding-top: 50px;
+      padding-bottom: 50px;
+      hyphens: auto;
+      overflow-wrap: break-word;
+      text-rendering: optimizeLegibility;
+      font-kerning: normal;
+    }
+    @media (max-width: 600px) {
+      body {
+        font-size: 0.9em;
+        padding: 12px;
+      }
+      h1 {
+        font-size: 1.8em;
+      }
+    }
+    @media print {
+      html {
+        background-color: white;
+      }
+      body {
+        background-color: transparent;
+        color: black;
+        font-size: 12pt;
+      }
+      p, h2, h3 {
+        orphans: 3;
+        widows: 3;
+      }
+      h2, h3, h4 {
+        page-break-after: avoid;
+      }
+    }
+    p {
+      margin: 1em 0;
+    }
+    a {
+      color: #1a1a1a;
+    }
+    a:visited {
+      color: #1a1a1a;
+    }
+    img {
+      max-width: 100%;
+    }
+    svg {
+      height: auto;
+      max-width: 100%;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.4em;
+    }
+    h5, h6 {
+      font-size: 1em;
+      font-style: italic;
+    }
+    h6 {
+      font-weight: normal;
+    }
+    ol, ul {
+      padding-left: 1.7em;
+      margin-top: 1em;
+    }
+    li > ol, li > ul {
+      margin-top: 0;
+    }
+    blockquote {
+      margin: 1em 0 1em 1.7em;
+      padding-left: 1em;
+      border-left: 2px solid #e6e6e6;
+      color: #606060;
+    }
+    code {
+      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
+      font-size: 85%;
+      margin: 0;
+      hyphens: manual;
+    }
+    pre {
+      margin: 1em 0;
+      overflow: auto;
+    }
+    pre code {
+      padding: 0;
+      overflow: visible;
+      overflow-wrap: normal;
+    }
+    .sourceCode {
+     background-color: transparent;
+     overflow: visible;
+    }
+    hr {
+      background-color: #1a1a1a;
+      border: none;
+      height: 1px;
+      margin: 1em 0;
+    }
+    table {
+      margin: 1em 0;
+      border-collapse: collapse;
+      width: 100%;
+      overflow-x: auto;
+      display: block;
+      font-variant-numeric: lining-nums tabular-nums;
+    }
+    table caption {
+      margin-bottom: 0.75em;
+    }
+    tbody {
+      margin-top: 0.5em;
+      border-top: 1px solid #1a1a1a;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    th {
+      border-top: 1px solid #1a1a1a;
+      padding: 0.25em 0.5em 0.25em 0.5em;
+    }
+    td {
+      padding: 0.125em 0.5em 0.25em 0.5em;
+    }
+    header {
+      margin-bottom: 4em;
+      text-align: center;
+    }
+    #TOC li {
+      list-style: none;
+    }
+    #TOC ul {
+      padding-left: 1.3em;
+    }
+    #TOC > ul {
+      padding-left: 0;
+    }
+    #TOC a:not(:hover) {
+      text-decoration: none;
+    }
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+    /* CSS for syntax highlighting */
+    html { -webkit-text-size-adjust: 100%; }
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    .sourceCode { overflow: visible; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {  background-color: #f8f8f8; }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ef2929; } /* Alert */
+    code span.an { color: #8f5902; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #204a87; } /* Attribute */
+    code span.bn { color: #0000cf; } /* BaseN */
+    code span.cf { color: #204a87; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4e9a06; } /* Char */
+    code span.cn { color: #8f5902; } /* Constant */
+    code span.co { color: #8f5902; font-style: italic; } /* Comment */
+    code span.cv { color: #8f5902; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #8f5902; font-weight: bold; font-style: italic; } /* Documentation */
+    code span.dt { color: #204a87; } /* DataType */
+    code span.dv { color: #0000cf; } /* DecVal */
+    code span.er { color: #a40000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #0000cf; } /* Float */
+    code span.fu { color: #204a87; font-weight: bold; } /* Function */
+    code span.im { } /* Import */
+    code span.in { color: #8f5902; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #204a87; font-weight: bold; } /* Keyword */
+    code span.op { color: #ce5c00; font-weight: bold; } /* Operator */
+    code span.ot { color: #8f5902; } /* Other */
+    code span.pp { color: #8f5902; font-style: italic; } /* Preprocessor */
+    code span.sc { color: #ce5c00; font-weight: bold; } /* SpecialChar */
+    code span.ss { color: #4e9a06; } /* SpecialString */
+    code span.st { color: #4e9a06; } /* String */
+    code span.va { color: #000000; } /* Variable */
+    code span.vs { color: #4e9a06; } /* VerbatimString */
+    code span.wa { color: #8f5902; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">Beating the Auto-Vectorizer</h1>
+<p class="date">Aug 10. 2025</p>
+</header>
+<nav id="TOC" role="doc-toc">
+<h2 id="toc-title">Table of contents</h2>
+<ul>
+<li><a href="#introduction" id="toc-introduction">Introduction</a></li>
+<li><a href="#match-1" id="toc-match-1">Match 1</a>
+<ul>
+<li><a href="#contestant-nr.-1" id="toc-contestant-nr.-1">Contestant nr.
+1</a></li>
+<li><a href="#contestant-nr.-2" id="toc-contestant-nr.-2">Contestant nr.
+2</a></li>
+<li><a href="#contestant-nr.-3" id="toc-contestant-nr.-3">Contestant nr.
+3</a></li>
+<li><a href="#benchmarks" id="toc-benchmarks">Benchmarks</a>
+<ul>
+<li><a href="#debug-cargo-run" id="toc-debug-cargo-run">Debug
+(<code>cargo run</code>)</a></li>
+<li><a href="#release-cargo-run---release"
+id="toc-release-cargo-run---release">Release
+(<code>cargo run --release</code>)</a></li>
+</ul></li>
+<li><a href="#results" id="toc-results">Results</a></li>
+</ul></li>
+<li><a href="#match-2" id="toc-match-2">Match 2</a>
+<ul>
+<li><a href="#contestant-nr.-1-1" id="toc-contestant-nr.-1-1">Contestant
+nr. 1</a></li>
+<li><a href="#contestant-nr.-2-1" id="toc-contestant-nr.-2-1">Contestant
+nr. 2</a></li>
+<li><a href="#contestant-nr.-3-1" id="toc-contestant-nr.-3-1">Contestant
+nr. 3</a></li>
+<li><a href="#benchmarks-1" id="toc-benchmarks-1">Benchmarks</a>
+<ul>
+<li><a href="#debug-cargo-run-1" id="toc-debug-cargo-run-1">Debug
+(<code>cargo run</code>)</a></li>
+<li><a href="#release-cargo-run---release-1"
+id="toc-release-cargo-run---release-1">Release
+(<code>cargo run --release</code>)</a></li>
+</ul></li>
+<li><a href="#results-1" id="toc-results-1">Results</a></li>
+</ul></li>
+</ul>
+</nav>
+<p><em>Full disclosure: I’m not not an expert programmer, this is purely
+for exploring different optimization techniques. Take everything you
+read here with a pinch of salt and always benchmark your code before
+optimizing.</em></p>
+<h1 id="introduction">Introduction</h1>
+<p>Writing fast and efficient code is important for various reasons, and
+you know them, otherwise you wouldn’t read this article. If you want to
+write fast code you need to utilize the hardware that your code is
+running on. One feature of all CPUs created in the last 25 years have <a
+href="https://en.wikipedia.org/wiki/Single_instruction,_multiple_data">single
+instruction, multiple data (SIMD)</a> instructions that allows the
+programmer to issue one instruction that operate on multiple elements at
+once.</p>
+<p><strong>Disclaimer:</strong> I won’t be using intrinsics in the
+manually vectorized implementations, I will use Rust’s <a
+href="https://doc.rust-lang.org/stable/std/simd/index.html">portable
+SIMD</a> module. What I’ll present are code that you write once and run
+everywhere.</p>
+<p><strong>Benchmarks:</strong> The benchmarks contains some acronyms I
+wan’t to explain here. TSC: time stamp counter, on my x64 machine I used
+<code>rdtsc</code> immediately before and after running the hot
+function, TSC will be the difference between the two samples.</p>
+<p>All source code presented can be found <a
+href="https://github.com/MAlba124/malba124.github.io/blob/main/beating-the-auto-vectorizer">here</a>.</p>
+<h1 id="match-1">Match 1</h1>
+<p>Let’s start off with the “hello world” of SIMD. Summing floats.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode rust"><code class="sourceCode rust"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> S<span class="op">:</span> <span class="dt">usize</span> <span class="op">=</span> <span class="dv">16</span><span class="op">;</span></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="pp">macro_rules!</span> fold_sum_f32 <span class="op">{</span></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>    (<span class="op">$</span>chunk<span class="op">:</span>expr) <span class="op">=&gt;</span> <span class="op">{</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>        <span class="op">$</span>chunk<span class="op">.</span>iter()<span class="op">.</span>fold(<span class="dv">0.0</span><span class="op">,</span> <span class="op">|</span>acc<span class="op">,</span> b<span class="op">|</span> acc <span class="op">+</span> b)</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>    <span class="op">};</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<h2 id="contestant-nr.-1">Contestant nr. 1</h2>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode rust"><code class="sourceCode rust"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">fn</span> sum_naive(nums<span class="op">:</span> <span class="op">&amp;</span>[<span class="dt">f32</span>]) <span class="op">-&gt;</span> <span class="dt">f32</span> <span class="op">{</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>    <span class="pp">fold_sum_f32!</span>(nums)</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<h2 id="contestant-nr.-2">Contestant nr. 2</h2>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode rust"><code class="sourceCode rust"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">fn</span> sum_auto(nums<span class="op">:</span> <span class="op">&amp;</span>[<span class="dt">f32</span>]) <span class="op">-&gt;</span> <span class="dt">f32</span> <span class="op">{</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> <span class="kw">mut</span> accumulators <span class="op">=</span> [<span class="dv">0.0</span><span class="op">;</span> S]<span class="op">;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> (chunks<span class="op">,</span> rem) <span class="op">=</span> nums<span class="op">.</span><span class="pp">as_chunks::</span><span class="op">&lt;</span>S<span class="op">&gt;</span>()<span class="op">;</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> chunk <span class="kw">in</span> chunks <span class="op">{</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>        chunk</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>            <span class="op">.</span>iter()</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>            <span class="op">.</span>zip(accumulators<span class="op">.</span>iter_mut())</span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>            <span class="op">.</span>for_each(<span class="op">|</span>(n<span class="op">,</span> acc)<span class="op">|</span> <span class="op">*</span>acc <span class="op">+=</span> <span class="op">*</span>n)<span class="op">;</span></span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>    <span class="op">}</span></span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>    <span class="pp">fold_sum_f32!</span>(accumulators) <span class="op">+</span> <span class="pp">fold_sum_f32!</span>(rem)</span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<h2 id="contestant-nr.-3">Contestant nr. 3</h2>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode rust"><code class="sourceCode rust"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="kw">fn</span> sum_manual(nums<span class="op">:</span> <span class="op">&amp;</span>[<span class="dt">f32</span>]) <span class="op">-&gt;</span> <span class="dt">f32</span> <span class="op">{</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> <span class="kw">mut</span> accumulator <span class="op">=</span> <span class="pp">f32x16::</span>splat(<span class="dv">0.0</span>)<span class="op">;</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> (chunks<span class="op">,</span> rem) <span class="op">=</span> nums<span class="op">.</span><span class="pp">as_chunks::</span><span class="op">&lt;</span>S<span class="op">&gt;</span>()<span class="op">;</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> chunk <span class="kw">in</span> chunks <span class="op">{</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>        <span class="kw">let</span> chunk <span class="op">=</span> <span class="pp">f32x16::</span>from_array(<span class="op">*</span>chunk)<span class="op">;</span></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>        accumulator<span class="op">.</span>add_assign(chunk)<span class="op">;</span></span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>    <span class="op">}</span></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a>    accumulator<span class="op">.</span>reduce_sum() <span class="op">+</span> <span class="pp">fold_sum_f32!</span>(rem)</span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<h2 id="benchmarks">Benchmarks</h2>
+<p>The length of the <code>nums</code> array was <code>1024</code> for
+the following benchmarks.</p>
+<h3 id="debug-cargo-run">Debug (<code>cargo run</code>)</h3>
+<!--
+(defun compute-perf (baseline auto manual)
+    (interactive)
+    (end-of-line)
+    (newline)
+    (insert (format "Baseline: %.2f Auto: %.2f Manual %.2f"
+        (/ baseline baseline) (/ baseline auto) (/ baseline manual))))
+
+(compute-perf 19751.0 33218.0 5356.0)
+Baseline: 1.00 Auto: 0.59 Manual 3.69
+-->
+<table>
+<thead>
+<tr>
+<th>Implementation</th>
+<th>TSC average</th>
+<th>Time average</th>
+<th>Baseline (Naive) / TSC</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Naive</td>
+<td>19751</td>
+<td>7.657µs</td>
+<td>1.00</td>
+</tr>
+<tr>
+<td>Auto</td>
+<td>33218</td>
+<td>12.833µs</td>
+<td>0.59</td>
+</tr>
+<tr>
+<td>Manual</td>
+<td>5356</td>
+<td>2.09µs</td>
+<td>3.69</td>
+</tr>
+</tbody>
+</table>
+<h3 id="release-cargo-run---release">Release
+(<code>cargo run --release</code>)</h3>
+<!--
+(compute-perf 4129.0 230.0 230.0)
+Baseline: 1.00 Auto: 17.95 Manual 17.95
+-->
+<table>
+<thead>
+<tr>
+<th>Implementation</th>
+<th>TSC average</th>
+<th>Time average</th>
+<th>Baseline (Naive) / TSC</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Naive</td>
+<td>4129</td>
+<td>1.621µs</td>
+<td>1</td>
+</tr>
+<tr>
+<td>Auto</td>
+<td>230</td>
+<td>130ns</td>
+<td>17.95</td>
+</tr>
+<tr>
+<td>Manual</td>
+<td>230</td>
+<td>130ns</td>
+<td>17.95</td>
+</tr>
+</tbody>
+</table>
+<h2 id="results">Results</h2>
+<p>It shouldn’t come to anyones surprise that the compiler is able to
+create code equally performant as the manually vectorized
+implementation. We can take a look at the generated assembly code with
+<a href="https://github.com/pacak/cargo-show-asm">cargo-show-asm</a> to
+see if there are any differences.</p>
+<p>Auto:</p>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode asm"><code class="sourceCode fasm"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sum_auto:</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>        .cfi_startproc</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>        <span class="bu">mov</span> <span class="kw">ecx</span><span class="op">,</span> <span class="kw">esi</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>        <span class="bu">and</span> <span class="kw">ecx</span><span class="op">,</span> <span class="dv">15</span></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>        <span class="bu">mov</span> <span class="kw">rax</span><span class="op">,</span> <span class="kw">rsi</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>        <span class="bu">shr</span> <span class="kw">rax</span><span class="op">,</span> <span class="dv">4</span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xorps</span> <span class="kw">xmm2</span><span class="op">,</span> <span class="kw">xmm2</span></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xorps</span> <span class="kw">xmm1</span><span class="op">,</span> <span class="kw">xmm1</span></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xorps</span> <span class="kw">xmm0</span><span class="op">,</span> <span class="kw">xmm0</span></span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>        <span class="bu">cmp</span> <span class="kw">rsi</span><span class="op">,</span> <span class="dv">16</span></span>
+<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>        <span class="cf">jb</span> <span class="op">.</span>LBB23_4</span>
+<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>        <span class="bu">mov</span> <span class="kw">rdx</span><span class="op">,</span> <span class="kw">rax</span></span>
+<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>        <span class="bu">shl</span> <span class="kw">rdx</span><span class="op">,</span> <span class="dv">6</span></span>
+<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xorps</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="kw">xmm4</span></span>
+<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xor</span> r8d<span class="op">,</span> r8d</span>
+<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xorps</span> <span class="kw">xmm3</span><span class="op">,</span> <span class="kw">xmm3</span></span>
+<span id="cb5-17"><a href="#cb5-17" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xorps</span> <span class="kw">xmm0</span><span class="op">,</span> <span class="kw">xmm0</span></span>
+<span id="cb5-18"><a href="#cb5-18" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xorps</span> <span class="kw">xmm1</span><span class="op">,</span> <span class="kw">xmm1</span></span>
+<span id="cb5-19"><a href="#cb5-19" aria-hidden="true" tabindex="-1"></a>        .p2align        <span class="dv">4</span></span>
+<span id="cb5-20"><a href="#cb5-20" aria-hidden="true" tabindex="-1"></a><span class="fu">.LBB23_2:</span></span>
+<span id="cb5-21"><a href="#cb5-21" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movups</span> <span class="kw">xmm5</span><span class="op">,</span> xmmword <span class="dt">ptr</span> <span class="op">[</span><span class="kw">rdi</span> <span class="op">+</span> <span class="kw">r8</span><span class="op">]</span></span>
+<span id="cb5-22"><a href="#cb5-22" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addps</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="kw">xmm5</span></span>
+<span id="cb5-23"><a href="#cb5-23" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movups</span> <span class="kw">xmm5</span><span class="op">,</span> xmmword <span class="dt">ptr</span> <span class="op">[</span><span class="kw">rdi</span> <span class="op">+</span> <span class="kw">r8</span> <span class="op">+</span> <span class="dv">16</span><span class="op">]</span></span>
+<span id="cb5-24"><a href="#cb5-24" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addps</span> <span class="kw">xmm3</span><span class="op">,</span> <span class="kw">xmm5</span></span>
+<span id="cb5-25"><a href="#cb5-25" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movups</span> <span class="kw">xmm5</span><span class="op">,</span> xmmword <span class="dt">ptr</span> <span class="op">[</span><span class="kw">rdi</span> <span class="op">+</span> <span class="kw">r8</span> <span class="op">+</span> <span class="dv">32</span><span class="op">]</span></span>
+<span id="cb5-26"><a href="#cb5-26" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addps</span> <span class="kw">xmm0</span><span class="op">,</span> <span class="kw">xmm5</span></span>
+<span id="cb5-27"><a href="#cb5-27" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movups</span> <span class="kw">xmm5</span><span class="op">,</span> xmmword <span class="dt">ptr</span> <span class="op">[</span><span class="kw">rdi</span> <span class="op">+</span> <span class="kw">r8</span> <span class="op">+</span> <span class="dv">48</span><span class="op">]</span></span>
+<span id="cb5-28"><a href="#cb5-28" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addps</span> <span class="kw">xmm1</span><span class="op">,</span> <span class="kw">xmm5</span></span>
+<span id="cb5-29"><a href="#cb5-29" aria-hidden="true" tabindex="-1"></a>        <span class="bu">add</span> <span class="kw">r8</span><span class="op">,</span> <span class="dv">64</span></span>
+<span id="cb5-30"><a href="#cb5-30" aria-hidden="true" tabindex="-1"></a>        <span class="bu">cmp</span> <span class="kw">rdx</span><span class="op">,</span> <span class="kw">r8</span></span>
+<span id="cb5-31"><a href="#cb5-31" aria-hidden="true" tabindex="-1"></a>        <span class="cf">jne</span> <span class="op">.</span>LBB23_2</span>
+<span id="cb5-32"><a href="#cb5-32" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xorps</span> <span class="kw">xmm5</span><span class="op">,</span> <span class="kw">xmm5</span></span>
+<span id="cb5-33"><a href="#cb5-33" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm5</span><span class="op">,</span> <span class="kw">xmm4</span></span>
+<span id="cb5-34"><a href="#cb5-34" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movaps</span> <span class="kw">xmm6</span><span class="op">,</span> <span class="kw">xmm4</span></span>
+<span id="cb5-35"><a href="#cb5-35" aria-hidden="true" tabindex="-1"></a>        <span class="bu">shufps</span> <span class="kw">xmm6</span><span class="op">,</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="dv">85</span></span>
+<span id="cb5-36"><a href="#cb5-36" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm6</span><span class="op">,</span> <span class="kw">xmm5</span></span>
+<span id="cb5-37"><a href="#cb5-37" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movaps</span> <span class="kw">xmm5</span><span class="op">,</span> <span class="kw">xmm4</span></span>
+<span id="cb5-38"><a href="#cb5-38" aria-hidden="true" tabindex="-1"></a>        <span class="bu">unpckhpd</span> <span class="kw">xmm5</span><span class="op">,</span> <span class="kw">xmm4</span></span>
+<span id="cb5-39"><a href="#cb5-39" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm5</span><span class="op">,</span> <span class="kw">xmm6</span></span>
+<span id="cb5-40"><a href="#cb5-40" aria-hidden="true" tabindex="-1"></a>        <span class="bu">shufps</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="dv">255</span></span>
+<span id="cb5-41"><a href="#cb5-41" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="kw">xmm5</span></span>
+<span id="cb5-42"><a href="#cb5-42" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="kw">xmm3</span></span>
+<span id="cb5-43"><a href="#cb5-43" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movaps</span> <span class="kw">xmm5</span><span class="op">,</span> <span class="kw">xmm3</span></span>
+<span id="cb5-44"><a href="#cb5-44" aria-hidden="true" tabindex="-1"></a>        <span class="bu">shufps</span> <span class="kw">xmm5</span><span class="op">,</span> <span class="kw">xmm3</span><span class="op">,</span> <span class="dv">85</span></span>
+<span id="cb5-45"><a href="#cb5-45" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm5</span><span class="op">,</span> <span class="kw">xmm4</span></span>
+<span id="cb5-46"><a href="#cb5-46" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movaps</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="kw">xmm3</span></span>
+<span id="cb5-47"><a href="#cb5-47" aria-hidden="true" tabindex="-1"></a>        <span class="bu">unpckhpd</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="kw">xmm3</span></span>
+<span id="cb5-48"><a href="#cb5-48" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="kw">xmm5</span></span>
+<span id="cb5-49"><a href="#cb5-49" aria-hidden="true" tabindex="-1"></a>        <span class="bu">shufps</span> <span class="kw">xmm3</span><span class="op">,</span> <span class="kw">xmm3</span><span class="op">,</span> <span class="dv">255</span></span>
+<span id="cb5-50"><a href="#cb5-50" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm3</span><span class="op">,</span> <span class="kw">xmm4</span></span>
+<span id="cb5-51"><a href="#cb5-51" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm3</span><span class="op">,</span> <span class="kw">xmm0</span></span>
+<span id="cb5-52"><a href="#cb5-52" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movaps</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="kw">xmm0</span></span>
+<span id="cb5-53"><a href="#cb5-53" aria-hidden="true" tabindex="-1"></a>        <span class="bu">shufps</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="kw">xmm0</span><span class="op">,</span> <span class="dv">85</span></span>
+<span id="cb5-54"><a href="#cb5-54" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="kw">xmm3</span></span>
+<span id="cb5-55"><a href="#cb5-55" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movaps</span> <span class="kw">xmm3</span><span class="op">,</span> <span class="kw">xmm0</span></span>
+<span id="cb5-56"><a href="#cb5-56" aria-hidden="true" tabindex="-1"></a>        <span class="bu">unpckhpd</span> <span class="kw">xmm3</span><span class="op">,</span> <span class="kw">xmm0</span></span>
+<span id="cb5-57"><a href="#cb5-57" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm3</span><span class="op">,</span> <span class="kw">xmm4</span></span>
+<span id="cb5-58"><a href="#cb5-58" aria-hidden="true" tabindex="-1"></a>        <span class="bu">shufps</span> <span class="kw">xmm0</span><span class="op">,</span> <span class="kw">xmm0</span><span class="op">,</span> <span class="dv">255</span></span>
+<span id="cb5-59"><a href="#cb5-59" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm0</span><span class="op">,</span> <span class="kw">xmm3</span></span>
+<span id="cb5-60"><a href="#cb5-60" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm0</span><span class="op">,</span> <span class="kw">xmm1</span></span>
+<span id="cb5-61"><a href="#cb5-61" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movaps</span> <span class="kw">xmm3</span><span class="op">,</span> <span class="kw">xmm1</span></span>
+<span id="cb5-62"><a href="#cb5-62" aria-hidden="true" tabindex="-1"></a>        <span class="bu">shufps</span> <span class="kw">xmm3</span><span class="op">,</span> <span class="kw">xmm1</span><span class="op">,</span> <span class="dv">85</span></span>
+<span id="cb5-63"><a href="#cb5-63" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm3</span><span class="op">,</span> <span class="kw">xmm0</span></span>
+<span id="cb5-64"><a href="#cb5-64" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movaps</span> <span class="kw">xmm0</span><span class="op">,</span> <span class="kw">xmm1</span></span>
+<span id="cb5-65"><a href="#cb5-65" aria-hidden="true" tabindex="-1"></a>        <span class="bu">unpckhpd</span> <span class="kw">xmm0</span><span class="op">,</span> <span class="kw">xmm1</span></span>
+<span id="cb5-66"><a href="#cb5-66" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm0</span><span class="op">,</span> <span class="kw">xmm3</span></span>
+<span id="cb5-67"><a href="#cb5-67" aria-hidden="true" tabindex="-1"></a>        <span class="bu">shufps</span> <span class="kw">xmm1</span><span class="op">,</span> <span class="kw">xmm1</span><span class="op">,</span> <span class="dv">255</span></span>
+<span id="cb5-68"><a href="#cb5-68" aria-hidden="true" tabindex="-1"></a><span class="fu">.LBB23_4:</span></span>
+<span id="cb5-69"><a href="#cb5-69" aria-hidden="true" tabindex="-1"></a>        <span class="bu">test</span> <span class="kw">rcx</span><span class="op">,</span> <span class="kw">rcx</span></span>
+<span id="cb5-70"><a href="#cb5-70" aria-hidden="true" tabindex="-1"></a>        <span class="cf">je</span> <span class="op">.</span>LBB23_12</span>
+<span id="cb5-71"><a href="#cb5-71" aria-hidden="true" tabindex="-1"></a>        <span class="bu">mov</span> <span class="kw">edx</span><span class="op">,</span> <span class="kw">esi</span></span>
+<span id="cb5-72"><a href="#cb5-72" aria-hidden="true" tabindex="-1"></a>        <span class="bu">and</span> <span class="kw">edx</span><span class="op">,</span> <span class="dv">7</span></span>
+<span id="cb5-73"><a href="#cb5-73" aria-hidden="true" tabindex="-1"></a>        <span class="bu">cmp</span> <span class="kw">ecx</span><span class="op">,</span> <span class="dv">8</span></span>
+<span id="cb5-74"><a href="#cb5-74" aria-hidden="true" tabindex="-1"></a>        <span class="cf">jae</span> <span class="op">.</span>LBB23_7</span>
+<span id="cb5-75"><a href="#cb5-75" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xorps</span> <span class="kw">xmm2</span><span class="op">,</span> <span class="kw">xmm2</span></span>
+<span id="cb5-76"><a href="#cb5-76" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xor</span> <span class="kw">eax</span><span class="op">,</span> <span class="kw">eax</span></span>
+<span id="cb5-77"><a href="#cb5-77" aria-hidden="true" tabindex="-1"></a>        <span class="cf">jmp</span> <span class="op">.</span>LBB23_9</span>
+<span id="cb5-78"><a href="#cb5-78" aria-hidden="true" tabindex="-1"></a><span class="fu">.LBB23_7:</span></span>
+<span id="cb5-79"><a href="#cb5-79" aria-hidden="true" tabindex="-1"></a>        <span class="bu">mov</span> <span class="kw">ecx</span><span class="op">,</span> <span class="kw">esi</span></span>
+<span id="cb5-80"><a href="#cb5-80" aria-hidden="true" tabindex="-1"></a>        <span class="bu">and</span> <span class="kw">ecx</span><span class="op">,</span> <span class="dv">8</span></span>
+<span id="cb5-81"><a href="#cb5-81" aria-hidden="true" tabindex="-1"></a>        <span class="bu">shl</span> <span class="kw">rax</span><span class="op">,</span> <span class="dv">6</span></span>
+<span id="cb5-82"><a href="#cb5-82" aria-hidden="true" tabindex="-1"></a>        <span class="bu">lea</span> <span class="kw">r8</span><span class="op">,</span> <span class="op">[</span><span class="kw">rax</span> <span class="op">+</span> <span class="kw">rdi</span><span class="op">]</span></span>
+<span id="cb5-83"><a href="#cb5-83" aria-hidden="true" tabindex="-1"></a>        <span class="bu">add</span> <span class="kw">r8</span><span class="op">,</span> <span class="dv">28</span></span>
+<span id="cb5-84"><a href="#cb5-84" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xorps</span> <span class="kw">xmm2</span><span class="op">,</span> <span class="kw">xmm2</span></span>
+<span id="cb5-85"><a href="#cb5-85" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xor</span> <span class="kw">eax</span><span class="op">,</span> <span class="kw">eax</span></span>
+<span id="cb5-86"><a href="#cb5-86" aria-hidden="true" tabindex="-1"></a>        .p2align        <span class="dv">4</span></span>
+<span id="cb5-87"><a href="#cb5-87" aria-hidden="true" tabindex="-1"></a><span class="fu">.LBB23_8:</span></span>
+<span id="cb5-88"><a href="#cb5-88" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm2</span><span class="op">,</span> <span class="dt">dword</span> <span class="dt">ptr</span> <span class="op">[</span><span class="kw">r8</span> <span class="op">+</span> <span class="dv">4</span><span class="op">*</span><span class="kw">rax</span> <span class="op">-</span> <span class="dv">28</span><span class="op">]</span></span>
+<span id="cb5-89"><a href="#cb5-89" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm2</span><span class="op">,</span> <span class="dt">dword</span> <span class="dt">ptr</span> <span class="op">[</span><span class="kw">r8</span> <span class="op">+</span> <span class="dv">4</span><span class="op">*</span><span class="kw">rax</span> <span class="op">-</span> <span class="dv">24</span><span class="op">]</span></span>
+<span id="cb5-90"><a href="#cb5-90" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm2</span><span class="op">,</span> <span class="dt">dword</span> <span class="dt">ptr</span> <span class="op">[</span><span class="kw">r8</span> <span class="op">+</span> <span class="dv">4</span><span class="op">*</span><span class="kw">rax</span> <span class="op">-</span> <span class="dv">20</span><span class="op">]</span></span>
+<span id="cb5-91"><a href="#cb5-91" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm2</span><span class="op">,</span> <span class="dt">dword</span> <span class="dt">ptr</span> <span class="op">[</span><span class="kw">r8</span> <span class="op">+</span> <span class="dv">4</span><span class="op">*</span><span class="kw">rax</span> <span class="op">-</span> <span class="dv">16</span><span class="op">]</span></span>
+<span id="cb5-92"><a href="#cb5-92" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm2</span><span class="op">,</span> <span class="dt">dword</span> <span class="dt">ptr</span> <span class="op">[</span><span class="kw">r8</span> <span class="op">+</span> <span class="dv">4</span><span class="op">*</span><span class="kw">rax</span> <span class="op">-</span> <span class="dv">12</span><span class="op">]</span></span>
+<span id="cb5-93"><a href="#cb5-93" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm2</span><span class="op">,</span> <span class="dt">dword</span> <span class="dt">ptr</span> <span class="op">[</span><span class="kw">r8</span> <span class="op">+</span> <span class="dv">4</span><span class="op">*</span><span class="kw">rax</span> <span class="op">-</span> <span class="dv">8</span><span class="op">]</span></span>
+<span id="cb5-94"><a href="#cb5-94" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm2</span><span class="op">,</span> <span class="dt">dword</span> <span class="dt">ptr</span> <span class="op">[</span><span class="kw">r8</span> <span class="op">+</span> <span class="dv">4</span><span class="op">*</span><span class="kw">rax</span> <span class="op">-</span> <span class="dv">4</span><span class="op">]</span></span>
+<span id="cb5-95"><a href="#cb5-95" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm2</span><span class="op">,</span> <span class="dt">dword</span> <span class="dt">ptr</span> <span class="op">[</span><span class="kw">r8</span> <span class="op">+</span> <span class="dv">4</span><span class="op">*</span><span class="kw">rax</span><span class="op">]</span></span>
+<span id="cb5-96"><a href="#cb5-96" aria-hidden="true" tabindex="-1"></a>        <span class="bu">add</span> <span class="kw">rax</span><span class="op">,</span> <span class="dv">8</span></span>
+<span id="cb5-97"><a href="#cb5-97" aria-hidden="true" tabindex="-1"></a>        <span class="bu">cmp</span> <span class="kw">rcx</span><span class="op">,</span> <span class="kw">rax</span></span>
+<span id="cb5-98"><a href="#cb5-98" aria-hidden="true" tabindex="-1"></a>        <span class="cf">jne</span> <span class="op">.</span>LBB23_8</span>
+<span id="cb5-99"><a href="#cb5-99" aria-hidden="true" tabindex="-1"></a><span class="fu">.LBB23_9:</span></span>
+<span id="cb5-100"><a href="#cb5-100" aria-hidden="true" tabindex="-1"></a>        <span class="bu">test</span> <span class="kw">rdx</span><span class="op">,</span> <span class="kw">rdx</span></span>
+<span id="cb5-101"><a href="#cb5-101" aria-hidden="true" tabindex="-1"></a>        <span class="cf">je</span> <span class="op">.</span>LBB23_12</span>
+<span id="cb5-102"><a href="#cb5-102" aria-hidden="true" tabindex="-1"></a>        <span class="bu">and</span> <span class="kw">rsi</span><span class="op">,</span> <span class="op">-</span><span class="dv">16</span></span>
+<span id="cb5-103"><a href="#cb5-103" aria-hidden="true" tabindex="-1"></a>        <span class="bu">shl</span> <span class="kw">rax</span><span class="op">,</span> <span class="dv">2</span></span>
+<span id="cb5-104"><a href="#cb5-104" aria-hidden="true" tabindex="-1"></a>        <span class="bu">lea</span> <span class="kw">rax</span><span class="op">,</span> <span class="op">[</span><span class="kw">rax</span> <span class="op">+</span> <span class="dv">4</span><span class="op">*</span><span class="kw">rsi</span><span class="op">]</span></span>
+<span id="cb5-105"><a href="#cb5-105" aria-hidden="true" tabindex="-1"></a>        <span class="bu">add</span> <span class="kw">rdi</span><span class="op">,</span> <span class="kw">rax</span></span>
+<span id="cb5-106"><a href="#cb5-106" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xor</span> <span class="kw">eax</span><span class="op">,</span> <span class="kw">eax</span></span>
+<span id="cb5-107"><a href="#cb5-107" aria-hidden="true" tabindex="-1"></a>        .p2align        <span class="dv">4</span></span>
+<span id="cb5-108"><a href="#cb5-108" aria-hidden="true" tabindex="-1"></a><span class="fu">.LBB23_11:</span></span>
+<span id="cb5-109"><a href="#cb5-109" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm2</span><span class="op">,</span> <span class="dt">dword</span> <span class="dt">ptr</span> <span class="op">[</span><span class="kw">rdi</span> <span class="op">+</span> <span class="dv">4</span><span class="op">*</span><span class="kw">rax</span><span class="op">]</span></span>
+<span id="cb5-110"><a href="#cb5-110" aria-hidden="true" tabindex="-1"></a>        <span class="bu">inc</span> <span class="kw">rax</span></span>
+<span id="cb5-111"><a href="#cb5-111" aria-hidden="true" tabindex="-1"></a>        <span class="bu">cmp</span> <span class="kw">rdx</span><span class="op">,</span> <span class="kw">rax</span></span>
+<span id="cb5-112"><a href="#cb5-112" aria-hidden="true" tabindex="-1"></a>        <span class="cf">jne</span> <span class="op">.</span>LBB23_11</span>
+<span id="cb5-113"><a href="#cb5-113" aria-hidden="true" tabindex="-1"></a><span class="fu">.LBB23_12:</span></span>
+<span id="cb5-114"><a href="#cb5-114" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm0</span><span class="op">,</span> <span class="kw">xmm1</span></span>
+<span id="cb5-115"><a href="#cb5-115" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm0</span><span class="op">,</span> <span class="kw">xmm2</span></span>
+<span id="cb5-116"><a href="#cb5-116" aria-hidden="true" tabindex="-1"></a>        <span class="cf">ret</span></span></code></pre></div>
+<p>Manual:</p>
+<div class="sourceCode" id="cb6"><pre
+class="sourceCode asm"><code class="sourceCode fasm"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sum_manual:</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>        .cfi_startproc</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>        <span class="bu">mov</span> <span class="kw">edx</span><span class="op">,</span> <span class="kw">esi</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>        <span class="bu">and</span> <span class="kw">edx</span><span class="op">,</span> <span class="dv">15</span></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>        <span class="bu">mov</span> <span class="kw">rcx</span><span class="op">,</span> <span class="kw">rsi</span></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>        <span class="bu">shr</span> <span class="kw">rcx</span><span class="op">,</span> <span class="dv">4</span></span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>        <span class="bu">cmp</span> <span class="kw">rsi</span><span class="op">,</span> <span class="dv">16</span></span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>        <span class="cf">jae</span> <span class="op">.</span>LBB24_2</span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xorps</span> <span class="kw">xmm3</span><span class="op">,</span> <span class="kw">xmm3</span></span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xorps</span> <span class="kw">xmm2</span><span class="op">,</span> <span class="kw">xmm2</span></span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xorps</span> <span class="kw">xmm1</span><span class="op">,</span> <span class="kw">xmm1</span></span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xorps</span> <span class="kw">xmm0</span><span class="op">,</span> <span class="kw">xmm0</span></span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>        <span class="cf">jmp</span> <span class="op">.</span>LBB24_4</span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a><span class="fu">.LBB24_2:</span></span>
+<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>        <span class="bu">mov</span> <span class="kw">rax</span><span class="op">,</span> <span class="kw">rcx</span></span>
+<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a>        <span class="bu">shl</span> <span class="kw">rax</span><span class="op">,</span> <span class="dv">6</span></span>
+<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xorps</span> <span class="kw">xmm3</span><span class="op">,</span> <span class="kw">xmm3</span></span>
+<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xor</span> r8d<span class="op">,</span> r8d</span>
+<span id="cb6-19"><a href="#cb6-19" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xorps</span> <span class="kw">xmm2</span><span class="op">,</span> <span class="kw">xmm2</span></span>
+<span id="cb6-20"><a href="#cb6-20" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xorps</span> <span class="kw">xmm1</span><span class="op">,</span> <span class="kw">xmm1</span></span>
+<span id="cb6-21"><a href="#cb6-21" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xorps</span> <span class="kw">xmm0</span><span class="op">,</span> <span class="kw">xmm0</span></span>
+<span id="cb6-22"><a href="#cb6-22" aria-hidden="true" tabindex="-1"></a>        .p2align        <span class="dv">4</span></span>
+<span id="cb6-23"><a href="#cb6-23" aria-hidden="true" tabindex="-1"></a><span class="fu">.LBB24_3:</span></span>
+<span id="cb6-24"><a href="#cb6-24" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movups</span> <span class="kw">xmm4</span><span class="op">,</span> xmmword <span class="dt">ptr</span> <span class="op">[</span><span class="kw">rdi</span> <span class="op">+</span> <span class="kw">r8</span><span class="op">]</span></span>
+<span id="cb6-25"><a href="#cb6-25" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addps</span> <span class="kw">xmm3</span><span class="op">,</span> <span class="kw">xmm4</span></span>
+<span id="cb6-26"><a href="#cb6-26" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movups</span> <span class="kw">xmm4</span><span class="op">,</span> xmmword <span class="dt">ptr</span> <span class="op">[</span><span class="kw">rdi</span> <span class="op">+</span> <span class="kw">r8</span> <span class="op">+</span> <span class="dv">16</span><span class="op">]</span></span>
+<span id="cb6-27"><a href="#cb6-27" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addps</span> <span class="kw">xmm2</span><span class="op">,</span> <span class="kw">xmm4</span></span>
+<span id="cb6-28"><a href="#cb6-28" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movups</span> <span class="kw">xmm4</span><span class="op">,</span> xmmword <span class="dt">ptr</span> <span class="op">[</span><span class="kw">rdi</span> <span class="op">+</span> <span class="kw">r8</span> <span class="op">+</span> <span class="dv">32</span><span class="op">]</span></span>
+<span id="cb6-29"><a href="#cb6-29" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addps</span> <span class="kw">xmm1</span><span class="op">,</span> <span class="kw">xmm4</span></span>
+<span id="cb6-30"><a href="#cb6-30" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movups</span> <span class="kw">xmm4</span><span class="op">,</span> xmmword <span class="dt">ptr</span> <span class="op">[</span><span class="kw">rdi</span> <span class="op">+</span> <span class="kw">r8</span> <span class="op">+</span> <span class="dv">48</span><span class="op">]</span></span>
+<span id="cb6-31"><a href="#cb6-31" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addps</span> <span class="kw">xmm0</span><span class="op">,</span> <span class="kw">xmm4</span></span>
+<span id="cb6-32"><a href="#cb6-32" aria-hidden="true" tabindex="-1"></a>        <span class="bu">add</span> <span class="kw">r8</span><span class="op">,</span> <span class="dv">64</span></span>
+<span id="cb6-33"><a href="#cb6-33" aria-hidden="true" tabindex="-1"></a>        <span class="bu">cmp</span> <span class="kw">rax</span><span class="op">,</span> <span class="kw">r8</span></span>
+<span id="cb6-34"><a href="#cb6-34" aria-hidden="true" tabindex="-1"></a>        <span class="cf">jne</span> <span class="op">.</span>LBB24_3</span>
+<span id="cb6-35"><a href="#cb6-35" aria-hidden="true" tabindex="-1"></a><span class="fu">.LBB24_4:</span></span>
+<span id="cb6-36"><a href="#cb6-36" aria-hidden="true" tabindex="-1"></a>        <span class="bu">test</span> <span class="kw">rdx</span><span class="op">,</span> <span class="kw">rdx</span></span>
+<span id="cb6-37"><a href="#cb6-37" aria-hidden="true" tabindex="-1"></a>        <span class="cf">je</span> <span class="op">.</span>LBB24_5</span>
+<span id="cb6-38"><a href="#cb6-38" aria-hidden="true" tabindex="-1"></a>        <span class="bu">mov</span> <span class="kw">eax</span><span class="op">,</span> <span class="kw">esi</span></span>
+<span id="cb6-39"><a href="#cb6-39" aria-hidden="true" tabindex="-1"></a>        <span class="bu">and</span> <span class="kw">eax</span><span class="op">,</span> <span class="dv">7</span></span>
+<span id="cb6-40"><a href="#cb6-40" aria-hidden="true" tabindex="-1"></a>        <span class="bu">cmp</span> <span class="kw">edx</span><span class="op">,</span> <span class="dv">8</span></span>
+<span id="cb6-41"><a href="#cb6-41" aria-hidden="true" tabindex="-1"></a>        <span class="cf">jae</span> <span class="op">.</span>LBB24_8</span>
+<span id="cb6-42"><a href="#cb6-42" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xorps</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="kw">xmm4</span></span>
+<span id="cb6-43"><a href="#cb6-43" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xor</span> <span class="kw">ecx</span><span class="op">,</span> <span class="kw">ecx</span></span>
+<span id="cb6-44"><a href="#cb6-44" aria-hidden="true" tabindex="-1"></a>        <span class="cf">jmp</span> <span class="op">.</span>LBB24_10</span>
+<span id="cb6-45"><a href="#cb6-45" aria-hidden="true" tabindex="-1"></a><span class="fu">.LBB24_5:</span></span>
+<span id="cb6-46"><a href="#cb6-46" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xorps</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="kw">xmm4</span></span>
+<span id="cb6-47"><a href="#cb6-47" aria-hidden="true" tabindex="-1"></a>        <span class="cf">jmp</span> <span class="op">.</span>LBB24_13</span>
+<span id="cb6-48"><a href="#cb6-48" aria-hidden="true" tabindex="-1"></a><span class="fu">.LBB24_8:</span></span>
+<span id="cb6-49"><a href="#cb6-49" aria-hidden="true" tabindex="-1"></a>        <span class="bu">mov</span> <span class="kw">edx</span><span class="op">,</span> <span class="kw">esi</span></span>
+<span id="cb6-50"><a href="#cb6-50" aria-hidden="true" tabindex="-1"></a>        <span class="bu">and</span> <span class="kw">edx</span><span class="op">,</span> <span class="dv">8</span></span>
+<span id="cb6-51"><a href="#cb6-51" aria-hidden="true" tabindex="-1"></a>        <span class="bu">shl</span> <span class="kw">rcx</span><span class="op">,</span> <span class="dv">6</span></span>
+<span id="cb6-52"><a href="#cb6-52" aria-hidden="true" tabindex="-1"></a>        <span class="bu">lea</span> <span class="kw">r8</span><span class="op">,</span> <span class="op">[</span><span class="kw">rcx</span> <span class="op">+</span> <span class="kw">rdi</span><span class="op">]</span></span>
+<span id="cb6-53"><a href="#cb6-53" aria-hidden="true" tabindex="-1"></a>        <span class="bu">add</span> <span class="kw">r8</span><span class="op">,</span> <span class="dv">28</span></span>
+<span id="cb6-54"><a href="#cb6-54" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xorps</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="kw">xmm4</span></span>
+<span id="cb6-55"><a href="#cb6-55" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xor</span> <span class="kw">ecx</span><span class="op">,</span> <span class="kw">ecx</span></span>
+<span id="cb6-56"><a href="#cb6-56" aria-hidden="true" tabindex="-1"></a>        .p2align        <span class="dv">4</span></span>
+<span id="cb6-57"><a href="#cb6-57" aria-hidden="true" tabindex="-1"></a><span class="fu">.LBB24_9:</span></span>
+<span id="cb6-58"><a href="#cb6-58" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="dt">dword</span> <span class="dt">ptr</span> <span class="op">[</span><span class="kw">r8</span> <span class="op">+</span> <span class="dv">4</span><span class="op">*</span><span class="kw">rcx</span> <span class="op">-</span> <span class="dv">28</span><span class="op">]</span></span>
+<span id="cb6-59"><a href="#cb6-59" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="dt">dword</span> <span class="dt">ptr</span> <span class="op">[</span><span class="kw">r8</span> <span class="op">+</span> <span class="dv">4</span><span class="op">*</span><span class="kw">rcx</span> <span class="op">-</span> <span class="dv">24</span><span class="op">]</span></span>
+<span id="cb6-60"><a href="#cb6-60" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="dt">dword</span> <span class="dt">ptr</span> <span class="op">[</span><span class="kw">r8</span> <span class="op">+</span> <span class="dv">4</span><span class="op">*</span><span class="kw">rcx</span> <span class="op">-</span> <span class="dv">20</span><span class="op">]</span></span>
+<span id="cb6-61"><a href="#cb6-61" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="dt">dword</span> <span class="dt">ptr</span> <span class="op">[</span><span class="kw">r8</span> <span class="op">+</span> <span class="dv">4</span><span class="op">*</span><span class="kw">rcx</span> <span class="op">-</span> <span class="dv">16</span><span class="op">]</span></span>
+<span id="cb6-62"><a href="#cb6-62" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="dt">dword</span> <span class="dt">ptr</span> <span class="op">[</span><span class="kw">r8</span> <span class="op">+</span> <span class="dv">4</span><span class="op">*</span><span class="kw">rcx</span> <span class="op">-</span> <span class="dv">12</span><span class="op">]</span></span>
+<span id="cb6-63"><a href="#cb6-63" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="dt">dword</span> <span class="dt">ptr</span> <span class="op">[</span><span class="kw">r8</span> <span class="op">+</span> <span class="dv">4</span><span class="op">*</span><span class="kw">rcx</span> <span class="op">-</span> <span class="dv">8</span><span class="op">]</span></span>
+<span id="cb6-64"><a href="#cb6-64" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="dt">dword</span> <span class="dt">ptr</span> <span class="op">[</span><span class="kw">r8</span> <span class="op">+</span> <span class="dv">4</span><span class="op">*</span><span class="kw">rcx</span> <span class="op">-</span> <span class="dv">4</span><span class="op">]</span></span>
+<span id="cb6-65"><a href="#cb6-65" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="dt">dword</span> <span class="dt">ptr</span> <span class="op">[</span><span class="kw">r8</span> <span class="op">+</span> <span class="dv">4</span><span class="op">*</span><span class="kw">rcx</span><span class="op">]</span></span>
+<span id="cb6-66"><a href="#cb6-66" aria-hidden="true" tabindex="-1"></a>        <span class="bu">add</span> <span class="kw">rcx</span><span class="op">,</span> <span class="dv">8</span></span>
+<span id="cb6-67"><a href="#cb6-67" aria-hidden="true" tabindex="-1"></a>        <span class="bu">cmp</span> <span class="kw">rdx</span><span class="op">,</span> <span class="kw">rcx</span></span>
+<span id="cb6-68"><a href="#cb6-68" aria-hidden="true" tabindex="-1"></a>        <span class="cf">jne</span> <span class="op">.</span>LBB24_9</span>
+<span id="cb6-69"><a href="#cb6-69" aria-hidden="true" tabindex="-1"></a><span class="fu">.LBB24_10:</span></span>
+<span id="cb6-70"><a href="#cb6-70" aria-hidden="true" tabindex="-1"></a>        <span class="bu">test</span> <span class="kw">rax</span><span class="op">,</span> <span class="kw">rax</span></span>
+<span id="cb6-71"><a href="#cb6-71" aria-hidden="true" tabindex="-1"></a>        <span class="cf">je</span> <span class="op">.</span>LBB24_13</span>
+<span id="cb6-72"><a href="#cb6-72" aria-hidden="true" tabindex="-1"></a>        <span class="bu">and</span> <span class="kw">rsi</span><span class="op">,</span> <span class="op">-</span><span class="dv">16</span></span>
+<span id="cb6-73"><a href="#cb6-73" aria-hidden="true" tabindex="-1"></a>        <span class="bu">shl</span> <span class="kw">rcx</span><span class="op">,</span> <span class="dv">2</span></span>
+<span id="cb6-74"><a href="#cb6-74" aria-hidden="true" tabindex="-1"></a>        <span class="bu">lea</span> <span class="kw">rcx</span><span class="op">,</span> <span class="op">[</span><span class="kw">rcx</span> <span class="op">+</span> <span class="dv">4</span><span class="op">*</span><span class="kw">rsi</span><span class="op">]</span></span>
+<span id="cb6-75"><a href="#cb6-75" aria-hidden="true" tabindex="-1"></a>        <span class="bu">add</span> <span class="kw">rdi</span><span class="op">,</span> <span class="kw">rcx</span></span>
+<span id="cb6-76"><a href="#cb6-76" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xor</span> <span class="kw">ecx</span><span class="op">,</span> <span class="kw">ecx</span></span>
+<span id="cb6-77"><a href="#cb6-77" aria-hidden="true" tabindex="-1"></a>        .p2align        <span class="dv">4</span></span>
+<span id="cb6-78"><a href="#cb6-78" aria-hidden="true" tabindex="-1"></a><span class="fu">.LBB24_12:</span></span>
+<span id="cb6-79"><a href="#cb6-79" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="dt">dword</span> <span class="dt">ptr</span> <span class="op">[</span><span class="kw">rdi</span> <span class="op">+</span> <span class="dv">4</span><span class="op">*</span><span class="kw">rcx</span><span class="op">]</span></span>
+<span id="cb6-80"><a href="#cb6-80" aria-hidden="true" tabindex="-1"></a>        <span class="bu">inc</span> <span class="kw">rcx</span></span>
+<span id="cb6-81"><a href="#cb6-81" aria-hidden="true" tabindex="-1"></a>        <span class="bu">cmp</span> <span class="kw">rax</span><span class="op">,</span> <span class="kw">rcx</span></span>
+<span id="cb6-82"><a href="#cb6-82" aria-hidden="true" tabindex="-1"></a>        <span class="cf">jne</span> <span class="op">.</span>LBB24_12</span>
+<span id="cb6-83"><a href="#cb6-83" aria-hidden="true" tabindex="-1"></a><span class="fu">.LBB24_13:</span></span>
+<span id="cb6-84"><a href="#cb6-84" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movaps</span> <span class="kw">xmm5</span><span class="op">,</span> <span class="kw">xmm3</span></span>
+<span id="cb6-85"><a href="#cb6-85" aria-hidden="true" tabindex="-1"></a>        <span class="bu">shufps</span> <span class="kw">xmm5</span><span class="op">,</span> <span class="kw">xmm3</span><span class="op">,</span> <span class="dv">85</span></span>
+<span id="cb6-86"><a href="#cb6-86" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm5</span><span class="op">,</span> <span class="kw">xmm3</span></span>
+<span id="cb6-87"><a href="#cb6-87" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movaps</span> <span class="kw">xmm6</span><span class="op">,</span> <span class="kw">xmm3</span></span>
+<span id="cb6-88"><a href="#cb6-88" aria-hidden="true" tabindex="-1"></a>        <span class="bu">unpckhpd</span> <span class="kw">xmm6</span><span class="op">,</span> <span class="kw">xmm3</span></span>
+<span id="cb6-89"><a href="#cb6-89" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm6</span><span class="op">,</span> <span class="kw">xmm5</span></span>
+<span id="cb6-90"><a href="#cb6-90" aria-hidden="true" tabindex="-1"></a>        <span class="bu">shufps</span> <span class="kw">xmm3</span><span class="op">,</span> <span class="kw">xmm3</span><span class="op">,</span> <span class="dv">255</span></span>
+<span id="cb6-91"><a href="#cb6-91" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm3</span><span class="op">,</span> <span class="kw">xmm6</span></span>
+<span id="cb6-92"><a href="#cb6-92" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm3</span><span class="op">,</span> <span class="kw">xmm2</span></span>
+<span id="cb6-93"><a href="#cb6-93" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movaps</span> <span class="kw">xmm5</span><span class="op">,</span> <span class="kw">xmm2</span></span>
+<span id="cb6-94"><a href="#cb6-94" aria-hidden="true" tabindex="-1"></a>        <span class="bu">shufps</span> <span class="kw">xmm5</span><span class="op">,</span> <span class="kw">xmm2</span><span class="op">,</span> <span class="dv">85</span></span>
+<span id="cb6-95"><a href="#cb6-95" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm5</span><span class="op">,</span> <span class="kw">xmm3</span></span>
+<span id="cb6-96"><a href="#cb6-96" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movaps</span> <span class="kw">xmm3</span><span class="op">,</span> <span class="kw">xmm2</span></span>
+<span id="cb6-97"><a href="#cb6-97" aria-hidden="true" tabindex="-1"></a>        <span class="bu">unpckhpd</span> <span class="kw">xmm3</span><span class="op">,</span> <span class="kw">xmm2</span></span>
+<span id="cb6-98"><a href="#cb6-98" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm3</span><span class="op">,</span> <span class="kw">xmm5</span></span>
+<span id="cb6-99"><a href="#cb6-99" aria-hidden="true" tabindex="-1"></a>        <span class="bu">shufps</span> <span class="kw">xmm2</span><span class="op">,</span> <span class="kw">xmm2</span><span class="op">,</span> <span class="dv">255</span></span>
+<span id="cb6-100"><a href="#cb6-100" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm2</span><span class="op">,</span> <span class="kw">xmm3</span></span>
+<span id="cb6-101"><a href="#cb6-101" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm2</span><span class="op">,</span> <span class="kw">xmm1</span></span>
+<span id="cb6-102"><a href="#cb6-102" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movaps</span> <span class="kw">xmm3</span><span class="op">,</span> <span class="kw">xmm1</span></span>
+<span id="cb6-103"><a href="#cb6-103" aria-hidden="true" tabindex="-1"></a>        <span class="bu">shufps</span> <span class="kw">xmm3</span><span class="op">,</span> <span class="kw">xmm1</span><span class="op">,</span> <span class="dv">85</span></span>
+<span id="cb6-104"><a href="#cb6-104" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm3</span><span class="op">,</span> <span class="kw">xmm2</span></span>
+<span id="cb6-105"><a href="#cb6-105" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movaps</span> <span class="kw">xmm2</span><span class="op">,</span> <span class="kw">xmm1</span></span>
+<span id="cb6-106"><a href="#cb6-106" aria-hidden="true" tabindex="-1"></a>        <span class="bu">unpckhpd</span> <span class="kw">xmm2</span><span class="op">,</span> <span class="kw">xmm1</span></span>
+<span id="cb6-107"><a href="#cb6-107" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm2</span><span class="op">,</span> <span class="kw">xmm3</span></span>
+<span id="cb6-108"><a href="#cb6-108" aria-hidden="true" tabindex="-1"></a>        <span class="bu">shufps</span> <span class="kw">xmm1</span><span class="op">,</span> <span class="kw">xmm1</span><span class="op">,</span> <span class="dv">255</span></span>
+<span id="cb6-109"><a href="#cb6-109" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm1</span><span class="op">,</span> <span class="kw">xmm2</span></span>
+<span id="cb6-110"><a href="#cb6-110" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm1</span><span class="op">,</span> <span class="kw">xmm0</span></span>
+<span id="cb6-111"><a href="#cb6-111" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movaps</span> <span class="kw">xmm2</span><span class="op">,</span> <span class="kw">xmm0</span></span>
+<span id="cb6-112"><a href="#cb6-112" aria-hidden="true" tabindex="-1"></a>        <span class="bu">shufps</span> <span class="kw">xmm2</span><span class="op">,</span> <span class="kw">xmm0</span><span class="op">,</span> <span class="dv">85</span></span>
+<span id="cb6-113"><a href="#cb6-113" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm2</span><span class="op">,</span> <span class="kw">xmm1</span></span>
+<span id="cb6-114"><a href="#cb6-114" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movaps</span> <span class="kw">xmm1</span><span class="op">,</span> <span class="kw">xmm0</span></span>
+<span id="cb6-115"><a href="#cb6-115" aria-hidden="true" tabindex="-1"></a>        <span class="bu">unpckhpd</span> <span class="kw">xmm1</span><span class="op">,</span> <span class="kw">xmm0</span></span>
+<span id="cb6-116"><a href="#cb6-116" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm1</span><span class="op">,</span> <span class="kw">xmm2</span></span>
+<span id="cb6-117"><a href="#cb6-117" aria-hidden="true" tabindex="-1"></a>        <span class="bu">shufps</span> <span class="kw">xmm0</span><span class="op">,</span> <span class="kw">xmm0</span><span class="op">,</span> <span class="dv">255</span></span>
+<span id="cb6-118"><a href="#cb6-118" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm0</span><span class="op">,</span> <span class="kw">xmm1</span></span>
+<span id="cb6-119"><a href="#cb6-119" aria-hidden="true" tabindex="-1"></a>        <span class="bu">addss</span> <span class="kw">xmm0</span><span class="op">,</span> <span class="kw">xmm4</span></span>
+<span id="cb6-120"><a href="#cb6-120" aria-hidden="true" tabindex="-1"></a>        <span class="cf">ret</span></span></code></pre></div>
+<p>We can see that the hot path of the loop produces the exact same code
+if we compare the labels <code>.LBB23_2</code> for auto and
+<code>.LBB24_3</code> for the manual implementation. The results are not
+that interesting and we can’t trivially squeeze out any more
+performance. Let’s move on.</p>
+<h1 id="match-2">Match 2</h1>
+<p>Let’s imageine you need to count how many newlines a file has, how
+would you do that quickly? This next match will take a closer look at
+that.</p>
+<div class="sourceCode" id="cb7"><pre
+class="sourceCode rust"><code class="sourceCode rust"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="kw">const</span> N<span class="op">:</span> <span class="dt">usize</span> <span class="op">=</span> <span class="dv">32</span><span class="op">;</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="pp">macro_rules!</span> sum_zeros <span class="op">{</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>    (<span class="op">$</span>chunk<span class="op">:</span>expr) <span class="op">=&gt;</span> <span class="op">{</span></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>        <span class="op">$</span>chunk<span class="op">.</span>iter()<span class="op">.</span>fold(<span class="dv">0</span><span class="op">,</span> <span class="op">|</span>acc<span class="op">,</span> b<span class="op">|</span> acc <span class="op">+</span> (<span class="op">*</span>b <span class="op">==</span> <span class="dv">0</span>) <span class="kw">as</span> <span class="dt">usize</span>)</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>    <span class="op">};</span></span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<h2 id="contestant-nr.-1-1">Contestant nr. 1</h2>
+<div class="sourceCode" id="cb8"><pre
+class="sourceCode rust"><code class="sourceCode rust"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="kw">fn</span> count_newlines_naive(buf<span class="op">:</span> <span class="op">&amp;</span>[<span class="dt">u8</span>]) <span class="op">-&gt;</span> <span class="dt">usize</span> <span class="op">{</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>    buf<span class="op">.</span>iter()</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>        <span class="op">.</span>filter(<span class="op">|</span>ch<span class="op">|</span> <span class="op">**</span>ch <span class="op">==</span> <span class="ch">b&#39;</span><span class="sc">\n</span><span class="ch">&#39;</span>)</span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>        <span class="op">.</span>map(<span class="op">|</span>_<span class="op">|</span> <span class="dv">1</span>)</span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>        <span class="op">.</span><span class="pp">sum::</span><span class="op">&lt;</span><span class="dt">usize</span><span class="op">&gt;</span>()</span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<h2 id="contestant-nr.-2-1">Contestant nr. 2</h2>
+<div class="sourceCode" id="cb9"><pre
+class="sourceCode rust"><code class="sourceCode rust"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="kw">fn</span> count_newlines_auto(buf<span class="op">:</span> <span class="op">&amp;</span>[<span class="dt">u8</span>]) <span class="op">-&gt;</span> <span class="dt">usize</span> <span class="op">{</span></span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> <span class="kw">mut</span> count <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> (chunks<span class="op">,</span> rem) <span class="op">=</span> buf<span class="op">.</span><span class="pp">as_chunks::</span><span class="op">&lt;</span>N<span class="op">&gt;</span>()<span class="op">;</span></span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> chunk <span class="kw">in</span> chunks <span class="op">{</span></span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>        <span class="kw">let</span> res <span class="op">=</span> chunk<span class="op">.</span>iter()<span class="op">.</span>map(<span class="op">|</span>b<span class="op">|</span> b<span class="op">.</span>wrapping_sub(<span class="ch">b&#39;</span><span class="sc">\n</span><span class="ch">&#39;</span>))<span class="op">;</span></span>
+<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a>        count <span class="op">+=</span> res<span class="op">.</span>fold(<span class="dv">0</span><span class="op">,</span> <span class="op">|</span>acc<span class="op">,</span> b<span class="op">|</span> acc <span class="op">+</span> (b <span class="op">==</span> <span class="dv">0</span>) <span class="kw">as</span> <span class="dt">usize</span>)<span class="op">;</span></span>
+<span id="cb9-7"><a href="#cb9-7" aria-hidden="true" tabindex="-1"></a>    <span class="op">}</span></span>
+<span id="cb9-8"><a href="#cb9-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-9"><a href="#cb9-9" aria-hidden="true" tabindex="-1"></a>    count <span class="op">+</span> <span class="pp">sum_zeros!</span>(rem)</span>
+<span id="cb9-10"><a href="#cb9-10" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<h2 id="contestant-nr.-3-1">Contestant nr. 3</h2>
+<div class="sourceCode" id="cb10"><pre
+class="sourceCode rust"><code class="sourceCode rust"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="kw">fn</span> count_newlines_manual(buf<span class="op">:</span> <span class="op">&amp;</span>[<span class="dt">u8</span>]) <span class="op">-&gt;</span> <span class="dt">usize</span> <span class="op">{</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> <span class="kw">mut</span> count <span class="op">=</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> (chunks<span class="op">,</span> rem) <span class="op">=</span> buf<span class="op">.</span><span class="pp">as_chunks::</span><span class="op">&lt;</span>N<span class="op">&gt;</span>()<span class="op">;</span></span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>    <span class="kw">let</span> newlines <span class="op">=</span> <span class="pp">u8x32::</span>splat(<span class="ch">b&#39;</span><span class="sc">\n</span><span class="ch">&#39;</span>)<span class="op">;</span></span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>    <span class="cf">for</span> chunk <span class="kw">in</span> chunks <span class="op">{</span></span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>        <span class="kw">let</span> chunk <span class="op">=</span> <span class="pp">u8x32::</span>from_array(<span class="op">*</span>chunk)<span class="op">;</span></span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>        <span class="kw">let</span> res <span class="op">=</span> chunk<span class="op">.</span>simd_eq(newlines)<span class="op">;</span></span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a>        count <span class="op">+=</span> res<span class="op">.</span>to_bitmask()<span class="op">.</span>count_ones() <span class="kw">as</span> <span class="dt">usize</span><span class="op">;</span></span>
+<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a>    <span class="op">}</span></span>
+<span id="cb10-10"><a href="#cb10-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-11"><a href="#cb10-11" aria-hidden="true" tabindex="-1"></a>    count <span class="op">+</span> <span class="pp">sum_zeros!</span>(rem)</span>
+<span id="cb10-12"><a href="#cb10-12" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<h2 id="benchmarks-1">Benchmarks</h2>
+<p>The length of the <code>buf</code> array was <code>4096</code> for
+the following benchmarks.</p>
+<h3 id="debug-cargo-run-1">Debug (<code>cargo run</code>)</h3>
+<!--
+(defun compute-perf (baseline auto manual)
+    (interactive)
+    (end-of-line)
+    (newline)
+    (insert (format "Baseline: %.2f Auto: %.2f Manual %.2f"
+        (/ baseline baseline) (/ baseline auto) (/ baseline manual))))
+
+(compute-perf 44603.0 90775.0 30707.0)
+Baseline: 1.00 Auto: 0.49 Manual 1.45
+-->
+<table>
+<thead>
+<tr>
+<th>Implementation</th>
+<th>TSC average</th>
+<th>Time average</th>
+<th>Baseline (Naive) / TSC</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Naive</td>
+<td>44603</td>
+<td>17.102µs</td>
+<td>1.00</td>
+</tr>
+<tr>
+<td>Auto</td>
+<td>90775</td>
+<td>35.047µs</td>
+<td>0.49</td>
+</tr>
+<tr>
+<td>Manual</td>
+<td>30707</td>
+<td>25.827µs</td>
+<td>1.45</td>
+</tr>
+</tbody>
+</table>
+<h3 id="release-cargo-run---release-1">Release
+(<code>cargo run --release</code>)</h3>
+<!--
+(compute-perf 4420.0 4500.0 555.0)
+Baseline: 1.00 Auto: 0.98 Manual 7.96
+-->
+<table>
+<thead>
+<tr>
+<th>Implementation</th>
+<th>TSC average</th>
+<th>Time average</th>
+<th>Baseline (Naive) / TSC</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Naive</td>
+<td>4420</td>
+<td>1.70µs</td>
+<td>1</td>
+</tr>
+<tr>
+<td>Auto</td>
+<td>4500</td>
+<td>1.758µs</td>
+<td>0.98</td>
+</tr>
+<tr>
+<td>Manual</td>
+<td>555</td>
+<td>230ns</td>
+<td>7.96</td>
+</tr>
+</tbody>
+</table>
+<h2 id="results-1">Results</h2>
+<p>These results are quite interesting. Firstly, for debug the build our
+auto vectorized implementation are significantly slower than the naive
+sum. Secondly, for release the build our manual implementation yields an
+8x speed-up compared to the other contestants which for all intents and
+purposes perform equally well.</p>
+<p><em>On a side note, <code>rustc</code> has a special option
+<code>-C target-cpu=native</code> that dramatically changes the results
+of these benchmarks (hint; baseline gets 3x faster). I will not include
+those here, as it’s not portable, but it’s worth knowing that it’s
+available in those cases when you need it.</em></p>
+<p>Why does the compiler generate such slow code for the auto version?
+We’ll take a closer look.</p>
+<p>Auto:</p>
+<div class="sourceCode" id="cb11"><pre
+class="sourceCode asm"><code class="sourceCode fasm"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="fu">count_newlines_auto:</span></span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>        .cfi_startproc</span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>        <span class="bu">mov</span> <span class="kw">r8</span><span class="op">,</span> <span class="kw">rsi</span></span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a>        <span class="bu">and</span> <span class="kw">r8</span><span class="op">,</span> <span class="op">-</span><span class="dv">32</span></span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a>        <span class="bu">mov</span> <span class="kw">ecx</span><span class="op">,</span> <span class="kw">esi</span></span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a>        <span class="bu">and</span> <span class="kw">ecx</span><span class="op">,</span> <span class="dv">31</span></span>
+<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a>        <span class="bu">cmp</span> <span class="kw">rsi</span><span class="op">,</span> <span class="dv">32</span></span>
+<span id="cb11-8"><a href="#cb11-8" aria-hidden="true" tabindex="-1"></a>        <span class="cf">jae</span> <span class="op">.</span>LBB23_2</span>
+<span id="cb11-9"><a href="#cb11-9" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xor</span> <span class="kw">edx</span><span class="op">,</span> <span class="kw">edx</span></span>
+<span id="cb11-10"><a href="#cb11-10" aria-hidden="true" tabindex="-1"></a>        <span class="cf">jmp</span> <span class="op">.</span>LBB23_4</span>
+<span id="cb11-11"><a href="#cb11-11" aria-hidden="true" tabindex="-1"></a><span class="fu">.LBB23_2:</span></span>
+<span id="cb11-12"><a href="#cb11-12" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xor</span> <span class="kw">eax</span><span class="op">,</span> <span class="kw">eax</span></span>
+<span id="cb11-13"><a href="#cb11-13" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movdqa</span> <span class="kw">xmm0</span><span class="op">,</span> xmmword <span class="dt">ptr</span> <span class="op">[</span>rip <span class="op">+</span> <span class="op">.</span>LCPI23_0<span class="op">]</span></span>
+<span id="cb11-14"><a href="#cb11-14" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xor</span> <span class="kw">edx</span><span class="op">,</span> <span class="kw">edx</span></span>
+<span id="cb11-15"><a href="#cb11-15" aria-hidden="true" tabindex="-1"></a>        .p2align        <span class="dv">4</span></span>
+<span id="cb11-16"><a href="#cb11-16" aria-hidden="true" tabindex="-1"></a><span class="fu">.LBB23_3:</span></span>
+<span id="cb11-17"><a href="#cb11-17" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movdqu</span> <span class="kw">xmm1</span><span class="op">,</span> xmmword <span class="dt">ptr</span> <span class="op">[</span><span class="kw">rdi</span> <span class="op">+</span> <span class="kw">rax</span><span class="op">]</span></span>
+<span id="cb11-18"><a href="#cb11-18" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movdqu</span> <span class="kw">xmm2</span><span class="op">,</span> xmmword <span class="dt">ptr</span> <span class="op">[</span><span class="kw">rdi</span> <span class="op">+</span> <span class="kw">rax</span> <span class="op">+</span> <span class="dv">16</span><span class="op">]</span></span>
+<span id="cb11-19"><a href="#cb11-19" aria-hidden="true" tabindex="-1"></a>        <span class="bu">pcmpeqb</span> <span class="kw">xmm1</span><span class="op">,</span> <span class="kw">xmm0</span></span>
+<span id="cb11-20"><a href="#cb11-20" aria-hidden="true" tabindex="-1"></a>        <span class="bu">pmovmskb</span> r9d<span class="op">,</span> <span class="kw">xmm1</span></span>
+<span id="cb11-21"><a href="#cb11-21" aria-hidden="true" tabindex="-1"></a>        <span class="bu">pcmpeqb</span> <span class="kw">xmm2</span><span class="op">,</span> <span class="kw">xmm0</span></span>
+<span id="cb11-22"><a href="#cb11-22" aria-hidden="true" tabindex="-1"></a>        <span class="bu">pmovmskb</span> r10d<span class="op">,</span> <span class="kw">xmm2</span></span>
+<span id="cb11-23"><a href="#cb11-23" aria-hidden="true" tabindex="-1"></a>        <span class="bu">shl</span> r10d<span class="op">,</span> <span class="dv">16</span></span>
+<span id="cb11-24"><a href="#cb11-24" aria-hidden="true" tabindex="-1"></a>        <span class="bu">or</span> r10d<span class="op">,</span> r9d</span>
+<span id="cb11-25"><a href="#cb11-25" aria-hidden="true" tabindex="-1"></a>        <span class="bu">mov</span> r9d<span class="op">,</span> r10d</span>
+<span id="cb11-26"><a href="#cb11-26" aria-hidden="true" tabindex="-1"></a>        <span class="bu">shr</span> r9d</span>
+<span id="cb11-27"><a href="#cb11-27" aria-hidden="true" tabindex="-1"></a>        <span class="bu">and</span> r9d<span class="op">,</span> <span class="dv">1431655765</span></span>
+<span id="cb11-28"><a href="#cb11-28" aria-hidden="true" tabindex="-1"></a>        <span class="bu">sub</span> r10d<span class="op">,</span> r9d</span>
+<span id="cb11-29"><a href="#cb11-29" aria-hidden="true" tabindex="-1"></a>        <span class="bu">mov</span> r9d<span class="op">,</span> r10d</span>
+<span id="cb11-30"><a href="#cb11-30" aria-hidden="true" tabindex="-1"></a>        <span class="bu">and</span> r9d<span class="op">,</span> <span class="dv">858993459</span></span>
+<span id="cb11-31"><a href="#cb11-31" aria-hidden="true" tabindex="-1"></a>        <span class="bu">shr</span> r10d<span class="op">,</span> <span class="dv">2</span></span>
+<span id="cb11-32"><a href="#cb11-32" aria-hidden="true" tabindex="-1"></a>        <span class="bu">and</span> r10d<span class="op">,</span> <span class="dv">858993459</span></span>
+<span id="cb11-33"><a href="#cb11-33" aria-hidden="true" tabindex="-1"></a>        <span class="bu">add</span> r10d<span class="op">,</span> r9d</span>
+<span id="cb11-34"><a href="#cb11-34" aria-hidden="true" tabindex="-1"></a>        <span class="bu">mov</span> r9d<span class="op">,</span> r10d</span>
+<span id="cb11-35"><a href="#cb11-35" aria-hidden="true" tabindex="-1"></a>        <span class="bu">shr</span> r9d<span class="op">,</span> <span class="dv">4</span></span>
+<span id="cb11-36"><a href="#cb11-36" aria-hidden="true" tabindex="-1"></a>        <span class="bu">add</span> r9d<span class="op">,</span> r10d</span>
+<span id="cb11-37"><a href="#cb11-37" aria-hidden="true" tabindex="-1"></a>        <span class="bu">and</span> r9d<span class="op">,</span> <span class="dv">252645135</span></span>
+<span id="cb11-38"><a href="#cb11-38" aria-hidden="true" tabindex="-1"></a>        <span class="bu">imul</span> r9d<span class="op">,</span> r9d<span class="op">,</span> <span class="dv">16843009</span></span>
+<span id="cb11-39"><a href="#cb11-39" aria-hidden="true" tabindex="-1"></a>        <span class="bu">shr</span> r9d<span class="op">,</span> <span class="dv">24</span></span>
+<span id="cb11-40"><a href="#cb11-40" aria-hidden="true" tabindex="-1"></a>        <span class="bu">add</span> <span class="kw">rdx</span><span class="op">,</span> <span class="kw">r9</span></span>
+<span id="cb11-41"><a href="#cb11-41" aria-hidden="true" tabindex="-1"></a>        <span class="bu">add</span> <span class="kw">rax</span><span class="op">,</span> <span class="dv">32</span></span>
+<span id="cb11-42"><a href="#cb11-42" aria-hidden="true" tabindex="-1"></a>        <span class="bu">cmp</span> <span class="kw">r8</span><span class="op">,</span> <span class="kw">rax</span></span>
+<span id="cb11-43"><a href="#cb11-43" aria-hidden="true" tabindex="-1"></a>        <span class="cf">jne</span> <span class="op">.</span>LBB23_3</span>
+<span id="cb11-44"><a href="#cb11-44" aria-hidden="true" tabindex="-1"></a><span class="fu">.LBB23_4:</span></span>
+<span id="cb11-45"><a href="#cb11-45" aria-hidden="true" tabindex="-1"></a>        <span class="bu">test</span> <span class="kw">rcx</span><span class="op">,</span> <span class="kw">rcx</span></span>
+<span id="cb11-46"><a href="#cb11-46" aria-hidden="true" tabindex="-1"></a>        <span class="cf">je</span> <span class="op">.</span>LBB23_5</span>
+<span id="cb11-47"><a href="#cb11-47" aria-hidden="true" tabindex="-1"></a>        <span class="bu">cmp</span> <span class="kw">ecx</span><span class="op">,</span> <span class="dv">4</span></span>
+<span id="cb11-48"><a href="#cb11-48" aria-hidden="true" tabindex="-1"></a>        <span class="cf">jae</span> <span class="op">.</span>LBB23_8</span>
+<span id="cb11-49"><a href="#cb11-49" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xor</span> <span class="kw">esi</span><span class="op">,</span> <span class="kw">esi</span></span>
+<span id="cb11-50"><a href="#cb11-50" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xor</span> <span class="kw">eax</span><span class="op">,</span> <span class="kw">eax</span></span>
+<span id="cb11-51"><a href="#cb11-51" aria-hidden="true" tabindex="-1"></a>        <span class="cf">jmp</span> <span class="op">.</span>LBB23_11</span>
+<span id="cb11-52"><a href="#cb11-52" aria-hidden="true" tabindex="-1"></a><span class="fu">.LBB23_5:</span></span>
+<span id="cb11-53"><a href="#cb11-53" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xor</span> <span class="kw">eax</span><span class="op">,</span> <span class="kw">eax</span></span>
+<span id="cb11-54"><a href="#cb11-54" aria-hidden="true" tabindex="-1"></a>        <span class="bu">add</span> <span class="kw">rax</span><span class="op">,</span> <span class="kw">rdx</span></span>
+<span id="cb11-55"><a href="#cb11-55" aria-hidden="true" tabindex="-1"></a>        <span class="cf">ret</span></span>
+<span id="cb11-56"><a href="#cb11-56" aria-hidden="true" tabindex="-1"></a><span class="fu">.LBB23_8:</span></span>
+<span id="cb11-57"><a href="#cb11-57" aria-hidden="true" tabindex="-1"></a>        <span class="bu">and</span> <span class="kw">esi</span><span class="op">,</span> <span class="dv">28</span></span>
+<span id="cb11-58"><a href="#cb11-58" aria-hidden="true" tabindex="-1"></a>        <span class="bu">lea</span> <span class="kw">rax</span><span class="op">,</span> <span class="op">[</span><span class="kw">r8</span> <span class="op">+</span> <span class="kw">rdi</span><span class="op">]</span></span>
+<span id="cb11-59"><a href="#cb11-59" aria-hidden="true" tabindex="-1"></a>        <span class="bu">add</span> <span class="kw">rax</span><span class="op">,</span> <span class="dv">2</span></span>
+<span id="cb11-60"><a href="#cb11-60" aria-hidden="true" tabindex="-1"></a>        <span class="bu">pxor</span> <span class="kw">xmm0</span><span class="op">,</span> <span class="kw">xmm0</span></span>
+<span id="cb11-61"><a href="#cb11-61" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xor</span> r9d<span class="op">,</span> r9d</span>
+<span id="cb11-62"><a href="#cb11-62" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movdqa</span> <span class="kw">xmm3</span><span class="op">,</span> xmmword <span class="dt">ptr</span> <span class="op">[</span>rip <span class="op">+</span> <span class="op">.</span>LCPI23_1<span class="op">]</span></span>
+<span id="cb11-63"><a href="#cb11-63" aria-hidden="true" tabindex="-1"></a>        <span class="bu">pxor</span> <span class="kw">xmm2</span><span class="op">,</span> <span class="kw">xmm2</span></span>
+<span id="cb11-64"><a href="#cb11-64" aria-hidden="true" tabindex="-1"></a>        <span class="bu">pxor</span> <span class="kw">xmm1</span><span class="op">,</span> <span class="kw">xmm1</span></span>
+<span id="cb11-65"><a href="#cb11-65" aria-hidden="true" tabindex="-1"></a>        .p2align        <span class="dv">4</span></span>
+<span id="cb11-66"><a href="#cb11-66" aria-hidden="true" tabindex="-1"></a><span class="fu">.LBB23_9:</span></span>
+<span id="cb11-67"><a href="#cb11-67" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movzx</span> r10d<span class="op">,</span> <span class="dt">word</span> <span class="dt">ptr</span> <span class="op">[</span><span class="kw">rax</span> <span class="op">+</span> <span class="kw">r9</span> <span class="op">-</span> <span class="dv">2</span><span class="op">]</span></span>
+<span id="cb11-68"><a href="#cb11-68" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movd</span> <span class="kw">xmm4</span><span class="op">,</span> r10d</span>
+<span id="cb11-69"><a href="#cb11-69" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movzx</span> r10d<span class="op">,</span> <span class="dt">word</span> <span class="dt">ptr</span> <span class="op">[</span><span class="kw">rax</span> <span class="op">+</span> <span class="kw">r9</span><span class="op">]</span></span>
+<span id="cb11-70"><a href="#cb11-70" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movd</span> <span class="kw">xmm5</span><span class="op">,</span> r10d</span>
+<span id="cb11-71"><a href="#cb11-71" aria-hidden="true" tabindex="-1"></a>        <span class="bu">pcmpeqb</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="kw">xmm0</span></span>
+<span id="cb11-72"><a href="#cb11-72" aria-hidden="true" tabindex="-1"></a>        <span class="bu">punpcklbw</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="kw">xmm4</span></span>
+<span id="cb11-73"><a href="#cb11-73" aria-hidden="true" tabindex="-1"></a>        <span class="bu">pshuflw</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="dv">212</span></span>
+<span id="cb11-74"><a href="#cb11-74" aria-hidden="true" tabindex="-1"></a>        <span class="bu">pshufd</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="dv">212</span></span>
+<span id="cb11-75"><a href="#cb11-75" aria-hidden="true" tabindex="-1"></a>        <span class="bu">pand</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="kw">xmm3</span></span>
+<span id="cb11-76"><a href="#cb11-76" aria-hidden="true" tabindex="-1"></a>        <span class="bu">paddq</span> <span class="kw">xmm2</span><span class="op">,</span> <span class="kw">xmm4</span></span>
+<span id="cb11-77"><a href="#cb11-77" aria-hidden="true" tabindex="-1"></a>        <span class="bu">pcmpeqb</span> <span class="kw">xmm5</span><span class="op">,</span> <span class="kw">xmm0</span></span>
+<span id="cb11-78"><a href="#cb11-78" aria-hidden="true" tabindex="-1"></a>        <span class="bu">punpcklbw</span> <span class="kw">xmm5</span><span class="op">,</span> <span class="kw">xmm5</span></span>
+<span id="cb11-79"><a href="#cb11-79" aria-hidden="true" tabindex="-1"></a>        <span class="bu">pshuflw</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="kw">xmm5</span><span class="op">,</span> <span class="dv">212</span></span>
+<span id="cb11-80"><a href="#cb11-80" aria-hidden="true" tabindex="-1"></a>        <span class="bu">pshufd</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="dv">212</span></span>
+<span id="cb11-81"><a href="#cb11-81" aria-hidden="true" tabindex="-1"></a>        <span class="bu">pand</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="kw">xmm3</span></span>
+<span id="cb11-82"><a href="#cb11-82" aria-hidden="true" tabindex="-1"></a>        <span class="bu">paddq</span> <span class="kw">xmm1</span><span class="op">,</span> <span class="kw">xmm4</span></span>
+<span id="cb11-83"><a href="#cb11-83" aria-hidden="true" tabindex="-1"></a>        <span class="bu">add</span> <span class="kw">r9</span><span class="op">,</span> <span class="dv">4</span></span>
+<span id="cb11-84"><a href="#cb11-84" aria-hidden="true" tabindex="-1"></a>        <span class="bu">cmp</span> <span class="kw">rsi</span><span class="op">,</span> <span class="kw">r9</span></span>
+<span id="cb11-85"><a href="#cb11-85" aria-hidden="true" tabindex="-1"></a>        <span class="cf">jne</span> <span class="op">.</span>LBB23_9</span>
+<span id="cb11-86"><a href="#cb11-86" aria-hidden="true" tabindex="-1"></a>        <span class="bu">paddq</span> <span class="kw">xmm1</span><span class="op">,</span> <span class="kw">xmm2</span></span>
+<span id="cb11-87"><a href="#cb11-87" aria-hidden="true" tabindex="-1"></a>        <span class="bu">pshufd</span> <span class="kw">xmm0</span><span class="op">,</span> <span class="kw">xmm1</span><span class="op">,</span> <span class="dv">238</span></span>
+<span id="cb11-88"><a href="#cb11-88" aria-hidden="true" tabindex="-1"></a>        <span class="bu">paddq</span> <span class="kw">xmm0</span><span class="op">,</span> <span class="kw">xmm1</span></span>
+<span id="cb11-89"><a href="#cb11-89" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movq</span> <span class="kw">rax</span><span class="op">,</span> <span class="kw">xmm0</span></span>
+<span id="cb11-90"><a href="#cb11-90" aria-hidden="true" tabindex="-1"></a>        <span class="bu">cmp</span> <span class="kw">ecx</span><span class="op">,</span> <span class="kw">esi</span></span>
+<span id="cb11-91"><a href="#cb11-91" aria-hidden="true" tabindex="-1"></a>        <span class="cf">je</span> <span class="op">.</span>LBB23_13</span>
+<span id="cb11-92"><a href="#cb11-92" aria-hidden="true" tabindex="-1"></a><span class="fu">.LBB23_11:</span></span>
+<span id="cb11-93"><a href="#cb11-93" aria-hidden="true" tabindex="-1"></a>        <span class="bu">add</span> <span class="kw">rdi</span><span class="op">,</span> <span class="kw">r8</span></span>
+<span id="cb11-94"><a href="#cb11-94" aria-hidden="true" tabindex="-1"></a>        .p2align        <span class="dv">4</span></span>
+<span id="cb11-95"><a href="#cb11-95" aria-hidden="true" tabindex="-1"></a><span class="fu">.LBB23_12:</span></span>
+<span id="cb11-96"><a href="#cb11-96" aria-hidden="true" tabindex="-1"></a>        <span class="bu">cmp</span> <span class="dt">byte</span> <span class="dt">ptr</span> <span class="op">[</span><span class="kw">rdi</span> <span class="op">+</span> <span class="kw">rsi</span><span class="op">],</span> <span class="dv">1</span></span>
+<span id="cb11-97"><a href="#cb11-97" aria-hidden="true" tabindex="-1"></a>        <span class="bu">adc</span> <span class="kw">rax</span><span class="op">,</span> <span class="dv">0</span></span>
+<span id="cb11-98"><a href="#cb11-98" aria-hidden="true" tabindex="-1"></a>        <span class="bu">inc</span> <span class="kw">rsi</span></span>
+<span id="cb11-99"><a href="#cb11-99" aria-hidden="true" tabindex="-1"></a>        <span class="bu">cmp</span> <span class="kw">rcx</span><span class="op">,</span> <span class="kw">rsi</span></span>
+<span id="cb11-100"><a href="#cb11-100" aria-hidden="true" tabindex="-1"></a>        <span class="cf">jne</span> <span class="op">.</span>LBB23_12</span>
+<span id="cb11-101"><a href="#cb11-101" aria-hidden="true" tabindex="-1"></a><span class="fu">.LBB23_13:</span></span>
+<span id="cb11-102"><a href="#cb11-102" aria-hidden="true" tabindex="-1"></a>        <span class="bu">add</span> <span class="kw">rax</span><span class="op">,</span> <span class="kw">rdx</span></span>
+<span id="cb11-103"><a href="#cb11-103" aria-hidden="true" tabindex="-1"></a>        <span class="cf">ret</span></span></code></pre></div>
+<p>Manual:</p>
+<div class="sourceCode" id="cb12"><pre
+class="sourceCode asm"><code class="sourceCode fasm"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="fu">count_newlines_manual:</span></span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>        .cfi_startproc</span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>        <span class="bu">mov</span> <span class="kw">rdx</span><span class="op">,</span> <span class="kw">rsi</span></span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>        <span class="bu">and</span> <span class="kw">rdx</span><span class="op">,</span> <span class="op">-</span><span class="dv">32</span></span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a>        <span class="bu">mov</span> <span class="kw">ecx</span><span class="op">,</span> <span class="kw">esi</span></span>
+<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a>        <span class="bu">and</span> <span class="kw">ecx</span><span class="op">,</span> <span class="dv">31</span></span>
+<span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a>        <span class="bu">mov</span> <span class="kw">eax</span><span class="op">,</span> <span class="dv">10</span></span>
+<span id="cb12-8"><a href="#cb12-8" aria-hidden="true" tabindex="-1"></a>        <span class="bu">cmp</span> <span class="kw">rsi</span><span class="op">,</span> <span class="dv">32</span></span>
+<span id="cb12-9"><a href="#cb12-9" aria-hidden="true" tabindex="-1"></a>        <span class="cf">jb</span> <span class="op">.</span>LBB24_4</span>
+<span id="cb12-10"><a href="#cb12-10" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xor</span> r8d<span class="op">,</span> r8d</span>
+<span id="cb12-11"><a href="#cb12-11" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movdqa</span> <span class="kw">xmm0</span><span class="op">,</span> xmmword <span class="dt">ptr</span> <span class="op">[</span>rip <span class="op">+</span> <span class="op">.</span>LCPI24_0<span class="op">]</span></span>
+<span id="cb12-12"><a href="#cb12-12" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xor</span> <span class="kw">eax</span><span class="op">,</span> <span class="kw">eax</span></span>
+<span id="cb12-13"><a href="#cb12-13" aria-hidden="true" tabindex="-1"></a>        .p2align        <span class="dv">4</span></span>
+<span id="cb12-14"><a href="#cb12-14" aria-hidden="true" tabindex="-1"></a><span class="fu">.LBB24_2:</span></span>
+<span id="cb12-15"><a href="#cb12-15" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movdqu</span> <span class="kw">xmm1</span><span class="op">,</span> xmmword <span class="dt">ptr</span> <span class="op">[</span><span class="kw">rdi</span> <span class="op">+</span> <span class="kw">r8</span><span class="op">]</span></span>
+<span id="cb12-16"><a href="#cb12-16" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movdqu</span> <span class="kw">xmm2</span><span class="op">,</span> xmmword <span class="dt">ptr</span> <span class="op">[</span><span class="kw">rdi</span> <span class="op">+</span> <span class="kw">r8</span> <span class="op">+</span> <span class="dv">16</span><span class="op">]</span></span>
+<span id="cb12-17"><a href="#cb12-17" aria-hidden="true" tabindex="-1"></a>        <span class="bu">pcmpeqb</span> <span class="kw">xmm1</span><span class="op">,</span> <span class="kw">xmm0</span></span>
+<span id="cb12-18"><a href="#cb12-18" aria-hidden="true" tabindex="-1"></a>        <span class="bu">pmovmskb</span> r9d<span class="op">,</span> <span class="kw">xmm1</span></span>
+<span id="cb12-19"><a href="#cb12-19" aria-hidden="true" tabindex="-1"></a>        <span class="bu">pcmpeqb</span> <span class="kw">xmm2</span><span class="op">,</span> <span class="kw">xmm0</span></span>
+<span id="cb12-20"><a href="#cb12-20" aria-hidden="true" tabindex="-1"></a>        <span class="bu">pmovmskb</span> r10d<span class="op">,</span> <span class="kw">xmm2</span></span>
+<span id="cb12-21"><a href="#cb12-21" aria-hidden="true" tabindex="-1"></a>        <span class="bu">shl</span> r10d<span class="op">,</span> <span class="dv">16</span></span>
+<span id="cb12-22"><a href="#cb12-22" aria-hidden="true" tabindex="-1"></a>        <span class="bu">or</span> r10d<span class="op">,</span> r9d</span>
+<span id="cb12-23"><a href="#cb12-23" aria-hidden="true" tabindex="-1"></a>        <span class="bu">mov</span> r9d<span class="op">,</span> r10d</span>
+<span id="cb12-24"><a href="#cb12-24" aria-hidden="true" tabindex="-1"></a>        <span class="bu">shr</span> r9d</span>
+<span id="cb12-25"><a href="#cb12-25" aria-hidden="true" tabindex="-1"></a>        <span class="bu">and</span> r9d<span class="op">,</span> <span class="dv">1431655765</span></span>
+<span id="cb12-26"><a href="#cb12-26" aria-hidden="true" tabindex="-1"></a>        <span class="bu">sub</span> r10d<span class="op">,</span> r9d</span>
+<span id="cb12-27"><a href="#cb12-27" aria-hidden="true" tabindex="-1"></a>        <span class="bu">mov</span> r9d<span class="op">,</span> r10d</span>
+<span id="cb12-28"><a href="#cb12-28" aria-hidden="true" tabindex="-1"></a>        <span class="bu">and</span> r9d<span class="op">,</span> <span class="dv">858993459</span></span>
+<span id="cb12-29"><a href="#cb12-29" aria-hidden="true" tabindex="-1"></a>        <span class="bu">shr</span> r10d<span class="op">,</span> <span class="dv">2</span></span>
+<span id="cb12-30"><a href="#cb12-30" aria-hidden="true" tabindex="-1"></a>        <span class="bu">and</span> r10d<span class="op">,</span> <span class="dv">858993459</span></span>
+<span id="cb12-31"><a href="#cb12-31" aria-hidden="true" tabindex="-1"></a>        <span class="bu">add</span> r10d<span class="op">,</span> r9d</span>
+<span id="cb12-32"><a href="#cb12-32" aria-hidden="true" tabindex="-1"></a>        <span class="bu">mov</span> r9d<span class="op">,</span> r10d</span>
+<span id="cb12-33"><a href="#cb12-33" aria-hidden="true" tabindex="-1"></a>        <span class="bu">shr</span> r9d<span class="op">,</span> <span class="dv">4</span></span>
+<span id="cb12-34"><a href="#cb12-34" aria-hidden="true" tabindex="-1"></a>        <span class="bu">add</span> r9d<span class="op">,</span> r10d</span>
+<span id="cb12-35"><a href="#cb12-35" aria-hidden="true" tabindex="-1"></a>        <span class="bu">and</span> r9d<span class="op">,</span> <span class="dv">252645135</span></span>
+<span id="cb12-36"><a href="#cb12-36" aria-hidden="true" tabindex="-1"></a>        <span class="bu">imul</span> r9d<span class="op">,</span> r9d<span class="op">,</span> <span class="dv">16843009</span></span>
+<span id="cb12-37"><a href="#cb12-37" aria-hidden="true" tabindex="-1"></a>        <span class="bu">shr</span> r9d<span class="op">,</span> <span class="dv">24</span></span>
+<span id="cb12-38"><a href="#cb12-38" aria-hidden="true" tabindex="-1"></a>        <span class="bu">add</span> <span class="kw">rax</span><span class="op">,</span> <span class="kw">r9</span></span>
+<span id="cb12-39"><a href="#cb12-39" aria-hidden="true" tabindex="-1"></a>        <span class="bu">add</span> <span class="kw">r8</span><span class="op">,</span> <span class="dv">32</span></span>
+<span id="cb12-40"><a href="#cb12-40" aria-hidden="true" tabindex="-1"></a>        <span class="bu">cmp</span> <span class="kw">rdx</span><span class="op">,</span> <span class="kw">r8</span></span>
+<span id="cb12-41"><a href="#cb12-41" aria-hidden="true" tabindex="-1"></a>        <span class="cf">jne</span> <span class="op">.</span>LBB24_2</span>
+<span id="cb12-42"><a href="#cb12-42" aria-hidden="true" tabindex="-1"></a><span class="fu">.LBB24_4:</span></span>
+<span id="cb12-43"><a href="#cb12-43" aria-hidden="true" tabindex="-1"></a>        <span class="bu">test</span> <span class="kw">rcx</span><span class="op">,</span> <span class="kw">rcx</span></span>
+<span id="cb12-44"><a href="#cb12-44" aria-hidden="true" tabindex="-1"></a>        <span class="cf">je</span> <span class="op">.</span>LBB24_5</span>
+<span id="cb12-45"><a href="#cb12-45" aria-hidden="true" tabindex="-1"></a>        <span class="bu">cmp</span> <span class="kw">ecx</span><span class="op">,</span> <span class="dv">4</span></span>
+<span id="cb12-46"><a href="#cb12-46" aria-hidden="true" tabindex="-1"></a>        <span class="cf">jae</span> <span class="op">.</span>LBB24_8</span>
+<span id="cb12-47"><a href="#cb12-47" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xor</span> <span class="kw">esi</span><span class="op">,</span> <span class="kw">esi</span></span>
+<span id="cb12-48"><a href="#cb12-48" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xor</span> r8d<span class="op">,</span> r8d</span>
+<span id="cb12-49"><a href="#cb12-49" aria-hidden="true" tabindex="-1"></a>        <span class="cf">jmp</span> <span class="op">.</span>LBB24_11</span>
+<span id="cb12-50"><a href="#cb12-50" aria-hidden="true" tabindex="-1"></a><span class="fu">.LBB24_5:</span></span>
+<span id="cb12-51"><a href="#cb12-51" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xor</span> r8d<span class="op">,</span> r8d</span>
+<span id="cb12-52"><a href="#cb12-52" aria-hidden="true" tabindex="-1"></a>        <span class="bu">add</span> <span class="kw">rax</span><span class="op">,</span> <span class="kw">r8</span></span>
+<span id="cb12-53"><a href="#cb12-53" aria-hidden="true" tabindex="-1"></a>        <span class="cf">ret</span></span>
+<span id="cb12-54"><a href="#cb12-54" aria-hidden="true" tabindex="-1"></a><span class="fu">.LBB24_8:</span></span>
+<span id="cb12-55"><a href="#cb12-55" aria-hidden="true" tabindex="-1"></a>        <span class="bu">and</span> <span class="kw">esi</span><span class="op">,</span> <span class="dv">28</span></span>
+<span id="cb12-56"><a href="#cb12-56" aria-hidden="true" tabindex="-1"></a>        <span class="bu">lea</span> <span class="kw">r8</span><span class="op">,</span> <span class="op">[</span><span class="kw">rdx</span> <span class="op">+</span> <span class="kw">rdi</span><span class="op">]</span></span>
+<span id="cb12-57"><a href="#cb12-57" aria-hidden="true" tabindex="-1"></a>        <span class="bu">add</span> <span class="kw">r8</span><span class="op">,</span> <span class="dv">2</span></span>
+<span id="cb12-58"><a href="#cb12-58" aria-hidden="true" tabindex="-1"></a>        <span class="bu">pxor</span> <span class="kw">xmm0</span><span class="op">,</span> <span class="kw">xmm0</span></span>
+<span id="cb12-59"><a href="#cb12-59" aria-hidden="true" tabindex="-1"></a>        <span class="bu">xor</span> r9d<span class="op">,</span> r9d</span>
+<span id="cb12-60"><a href="#cb12-60" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movdqa</span> <span class="kw">xmm3</span><span class="op">,</span> xmmword <span class="dt">ptr</span> <span class="op">[</span>rip <span class="op">+</span> <span class="op">.</span>LCPI24_1<span class="op">]</span></span>
+<span id="cb12-61"><a href="#cb12-61" aria-hidden="true" tabindex="-1"></a>        <span class="bu">pxor</span> <span class="kw">xmm2</span><span class="op">,</span> <span class="kw">xmm2</span></span>
+<span id="cb12-62"><a href="#cb12-62" aria-hidden="true" tabindex="-1"></a>        <span class="bu">pxor</span> <span class="kw">xmm1</span><span class="op">,</span> <span class="kw">xmm1</span></span>
+<span id="cb12-63"><a href="#cb12-63" aria-hidden="true" tabindex="-1"></a>        .p2align        <span class="dv">4</span></span>
+<span id="cb12-64"><a href="#cb12-64" aria-hidden="true" tabindex="-1"></a><span class="fu">.LBB24_9:</span></span>
+<span id="cb12-65"><a href="#cb12-65" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movzx</span> r10d<span class="op">,</span> <span class="dt">word</span> <span class="dt">ptr</span> <span class="op">[</span><span class="kw">r8</span> <span class="op">+</span> <span class="kw">r9</span> <span class="op">-</span> <span class="dv">2</span><span class="op">]</span></span>
+<span id="cb12-66"><a href="#cb12-66" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movd</span> <span class="kw">xmm4</span><span class="op">,</span> r10d</span>
+<span id="cb12-67"><a href="#cb12-67" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movzx</span> r10d<span class="op">,</span> <span class="dt">word</span> <span class="dt">ptr</span> <span class="op">[</span><span class="kw">r8</span> <span class="op">+</span> <span class="kw">r9</span><span class="op">]</span></span>
+<span id="cb12-68"><a href="#cb12-68" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movd</span> <span class="kw">xmm5</span><span class="op">,</span> r10d</span>
+<span id="cb12-69"><a href="#cb12-69" aria-hidden="true" tabindex="-1"></a>        <span class="bu">pcmpeqb</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="kw">xmm0</span></span>
+<span id="cb12-70"><a href="#cb12-70" aria-hidden="true" tabindex="-1"></a>        <span class="bu">punpcklbw</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="kw">xmm4</span></span>
+<span id="cb12-71"><a href="#cb12-71" aria-hidden="true" tabindex="-1"></a>        <span class="bu">pshuflw</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="dv">212</span></span>
+<span id="cb12-72"><a href="#cb12-72" aria-hidden="true" tabindex="-1"></a>        <span class="bu">pshufd</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="dv">212</span></span>
+<span id="cb12-73"><a href="#cb12-73" aria-hidden="true" tabindex="-1"></a>        <span class="bu">pand</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="kw">xmm3</span></span>
+<span id="cb12-74"><a href="#cb12-74" aria-hidden="true" tabindex="-1"></a>        <span class="bu">paddq</span> <span class="kw">xmm2</span><span class="op">,</span> <span class="kw">xmm4</span></span>
+<span id="cb12-75"><a href="#cb12-75" aria-hidden="true" tabindex="-1"></a>        <span class="bu">pcmpeqb</span> <span class="kw">xmm5</span><span class="op">,</span> <span class="kw">xmm0</span></span>
+<span id="cb12-76"><a href="#cb12-76" aria-hidden="true" tabindex="-1"></a>        <span class="bu">punpcklbw</span> <span class="kw">xmm5</span><span class="op">,</span> <span class="kw">xmm5</span></span>
+<span id="cb12-77"><a href="#cb12-77" aria-hidden="true" tabindex="-1"></a>        <span class="bu">pshuflw</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="kw">xmm5</span><span class="op">,</span> <span class="dv">212</span></span>
+<span id="cb12-78"><a href="#cb12-78" aria-hidden="true" tabindex="-1"></a>        <span class="bu">pshufd</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="dv">212</span></span>
+<span id="cb12-79"><a href="#cb12-79" aria-hidden="true" tabindex="-1"></a>        <span class="bu">pand</span> <span class="kw">xmm4</span><span class="op">,</span> <span class="kw">xmm3</span></span>
+<span id="cb12-80"><a href="#cb12-80" aria-hidden="true" tabindex="-1"></a>        <span class="bu">paddq</span> <span class="kw">xmm1</span><span class="op">,</span> <span class="kw">xmm4</span></span>
+<span id="cb12-81"><a href="#cb12-81" aria-hidden="true" tabindex="-1"></a>        <span class="bu">add</span> <span class="kw">r9</span><span class="op">,</span> <span class="dv">4</span></span>
+<span id="cb12-82"><a href="#cb12-82" aria-hidden="true" tabindex="-1"></a>        <span class="bu">cmp</span> <span class="kw">rsi</span><span class="op">,</span> <span class="kw">r9</span></span>
+<span id="cb12-83"><a href="#cb12-83" aria-hidden="true" tabindex="-1"></a>        <span class="cf">jne</span> <span class="op">.</span>LBB24_9</span>
+<span id="cb12-84"><a href="#cb12-84" aria-hidden="true" tabindex="-1"></a>        <span class="bu">paddq</span> <span class="kw">xmm1</span><span class="op">,</span> <span class="kw">xmm2</span></span>
+<span id="cb12-85"><a href="#cb12-85" aria-hidden="true" tabindex="-1"></a>        <span class="bu">pshufd</span> <span class="kw">xmm0</span><span class="op">,</span> <span class="kw">xmm1</span><span class="op">,</span> <span class="dv">238</span></span>
+<span id="cb12-86"><a href="#cb12-86" aria-hidden="true" tabindex="-1"></a>        <span class="bu">paddq</span> <span class="kw">xmm0</span><span class="op">,</span> <span class="kw">xmm1</span></span>
+<span id="cb12-87"><a href="#cb12-87" aria-hidden="true" tabindex="-1"></a>        <span class="bu">movq</span> <span class="kw">r8</span><span class="op">,</span> <span class="kw">xmm0</span></span>
+<span id="cb12-88"><a href="#cb12-88" aria-hidden="true" tabindex="-1"></a>        <span class="bu">cmp</span> <span class="kw">ecx</span><span class="op">,</span> <span class="kw">esi</span></span>
+<span id="cb12-89"><a href="#cb12-89" aria-hidden="true" tabindex="-1"></a>        <span class="cf">je</span> <span class="op">.</span>LBB24_13</span>
+<span id="cb12-90"><a href="#cb12-90" aria-hidden="true" tabindex="-1"></a><span class="fu">.LBB24_11:</span></span>
+<span id="cb12-91"><a href="#cb12-91" aria-hidden="true" tabindex="-1"></a>        <span class="bu">add</span> <span class="kw">rdi</span><span class="op">,</span> <span class="kw">rdx</span></span>
+<span id="cb12-92"><a href="#cb12-92" aria-hidden="true" tabindex="-1"></a>        .p2align        <span class="dv">4</span></span>
+<span id="cb12-93"><a href="#cb12-93" aria-hidden="true" tabindex="-1"></a><span class="fu">.LBB24_12:</span></span>
+<span id="cb12-94"><a href="#cb12-94" aria-hidden="true" tabindex="-1"></a>        <span class="bu">cmp</span> <span class="dt">byte</span> <span class="dt">ptr</span> <span class="op">[</span><span class="kw">rdi</span> <span class="op">+</span> <span class="kw">rsi</span><span class="op">],</span> <span class="dv">1</span></span>
+<span id="cb12-95"><a href="#cb12-95" aria-hidden="true" tabindex="-1"></a>        <span class="bu">adc</span> <span class="kw">r8</span><span class="op">,</span> <span class="dv">0</span></span>
+<span id="cb12-96"><a href="#cb12-96" aria-hidden="true" tabindex="-1"></a>        <span class="bu">inc</span> <span class="kw">rsi</span></span>
+<span id="cb12-97"><a href="#cb12-97" aria-hidden="true" tabindex="-1"></a>        <span class="bu">cmp</span> <span class="kw">rcx</span><span class="op">,</span> <span class="kw">rsi</span></span>
+<span id="cb12-98"><a href="#cb12-98" aria-hidden="true" tabindex="-1"></a>        <span class="cf">jne</span> <span class="op">.</span>LBB24_12</span>
+<span id="cb12-99"><a href="#cb12-99" aria-hidden="true" tabindex="-1"></a><span class="fu">.LBB24_13:</span></span>
+<span id="cb12-100"><a href="#cb12-100" aria-hidden="true" tabindex="-1"></a>        <span class="bu">add</span> <span class="kw">rax</span><span class="op">,</span> <span class="kw">r8</span></span>
+<span id="cb12-101"><a href="#cb12-101" aria-hidden="true" tabindex="-1"></a>        <span class="cf">ret</span></span></code></pre></div>
+<p>WTF!? They’re pretty much the same. I guess we need a follow up where
+we dig deeper and profile the two functions to be able to understand how
+one of them is almost eight times faster than the other, so stay
+tuned!</p>
+</body>
+</html>
